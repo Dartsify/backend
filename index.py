@@ -62,11 +62,11 @@ def read_hero(hero_id: int, session: SessionDep) -> Hero:
     return hero
 
 # Delete a Hero by id
-router = APIRouter(prefix="/heroes", tags=["heroes"]) 
+# router = APIRouter(prefix="/heroes", tags=["heroes"]) 
 # tags sert à organiser la documentation automatique Swagger UI ( /docs ) et ReDoc ( /redoc ) ;
 # router permet de préfixer toutes les requêtes ici par /heroes (nous n'avons ici que les requêtes sur les heroes)
 
-@router.delete("/{hero_id}")
+@app.delete("/heroes/{hero_id}")
 def delete_hero(hero_id: int, session: SessionDep):
     hero = session.get(Hero, hero_id)
     if not hero:

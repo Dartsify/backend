@@ -1,10 +1,9 @@
-name: DartsProject
+name: Dartsify_Backend
 channels:
+  - conda-forge
   - defaults
 dependencies:
-  - opencv
-  - fastapi
-  - sqlalchemy
-  - sqlmodel
-  - matplotlib
-prefix: /opt/miniconda3/envs/DartsProject
+  - sqlalchemy=2.0.46
+  - sqlmodel=0.0.33
+  - fastapi=0.135.1
+prefix: /opt/miniconda3/envs/Dartsify_Backend
