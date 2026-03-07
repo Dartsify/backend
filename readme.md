@@ -3,12 +3,20 @@
 ## Table des matières <!-- omit in toc -->
 
 - [Installation des dépendances via conda](#installation-des-dépendances-via-conda)
+  - [Première possibilité : on crée un nouvel env](#première-possibilité--on-crée-un-nouvel-env)
+  - [Deuxième possibilité : on ajoute les librairies dans un env déjà créé plus tôt (pour par exemple garder le même env pour le backend, le frontend, etc)](#deuxième-possibilité--on-ajoute-les-librairies-dans-un-env-déjà-créé-plus-tôt-pour-par-exemple-garder-le-même-env-pour-le-backend-le-frontend-etc)
 - [Architecture du code](#architecture-du-code)
 
 ## Installation des dépendances via conda
 
+Deux possibilités, il faut **en faire qu'une seule sur les deux**.
+
+### Première possibilité : on crée un nouvel env
+
 Pour installer toutes les dépendances en créant un **nouvel env conda**, il suffit simplement d'entrer dans le terminal à la racine du dossier :
 `conda env create -f environment.yml`. Cette commande va automatiquement créer le nouvel env conda avec le nom renseigné dans le fichier `environment.yml` (i.e. _DartsifyBackend_) en installant les versions spécifiques de chaque librairie. Pour spécifier manuellement un autre nom de fichier, il faut ajouter `-n mon-env-fastapi` à la fin de la commande (avec le bon nom désiré).
+
+### Deuxième possibilité : on ajoute les librairies dans un env déjà créé plus tôt (pour par exemple garder le même env pour le backend, le frontend, etc)
 
 Pour mettre à jour les librairies d'un **env conda déjà existant**, il suffit d'entrer dans le terminal, après avoir activé l'env désiré : `conda env update --file environment.yml --prune`. Ceci va mettre à jour un env **déjà créé**.
 
