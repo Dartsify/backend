@@ -18,7 +18,7 @@ def on_startup():
 # app.include_router(throws.router)
 # app.include_router(participations.router)
 
-#Test 
+#Test dans env (fastapi-test et taper : uvicorn app.main:app --reload)
 @app.get("/")
 def root():
-    return {"message": "API is running"}
+    return {"message": "API is running "}
