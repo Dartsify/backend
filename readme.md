@@ -8,7 +8,7 @@
 ## Installation des dépendances via conda
 
 Pour installer toutes les dépendances en créant un **nouvel env conda**, il suffit simplement d'entrer dans le terminal à la racine du dossier :
-`conda env create -f environment.yml -n mon-env-fastapi`. Cette commande va automatiquement créer le nouvel env conda avec le nom renseigné dans le fichier `environment.yml` (i.e. _Dartsify_Backend_) en installant les versions spécifiques de chaque librairie.
+`conda env create -f environment.yml`. Cette commande va automatiquement créer le nouvel env conda avec le nom renseigné dans le fichier `environment.yml` (i.e. _Dartsify_Backend_) en installant les versions spécifiques de chaque librairie. Pour spécifier manuellement un autre nom de fichier, il faut ajouter `-n mon-env-fastapi` à la fin de la commande (avec le bon nom désiré).
 
 Pour mettre à jour les librairies d'un **env conda déjà existant**, il suffit d'entrer dans le terminal, après avoir activé l'env désiré : `conda env update --file environment.yml --prune`. Ceci va mettre à jour un env **déjà créé**.
 
