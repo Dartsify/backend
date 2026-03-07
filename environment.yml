@@ -1,0 +1,10 @@
+name: DartsProject
+channels:
+  - defaults
+dependencies:
+  - opencv
+  - fastapi
+  - sqlalchemy
+  - sqlmodel
+  - matplotlib
+prefix: /opt/miniconda3/envs/DartsProject
