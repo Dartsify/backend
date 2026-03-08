@@ -12,4 +12,4 @@ class Target(SQLModel, table=True):
     
     #pas sur de ca mais :
     #Pour que SQLModel sache que plusieurs parties peuvent pointer sur la même cible :
-    games : list["Game"]= Relationship(back_populates="target")
+    # games : list["Game"]= Relationship(back_populates="target")

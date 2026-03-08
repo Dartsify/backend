@@ -12,5 +12,5 @@ class GameParticipation(SQLModel, table=True):
 
 
     # Relations ORM (facultative mais pourrait servir pour naviguer)
-    player: Optional["Player"] = Relationship()
-    game: Optional["Game"] = Relationship()
+    # player: Optional["Player"] = Relationship()
+    # game: Optional["Game"] = Relationship()

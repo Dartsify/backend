@@ -20,6 +20,6 @@ class Game(SQLModel, table=True):
     
     
     # relation optionnelle pour SQLAlchemy / ORM
-    target: Optional["Target"] = Relationship(back_populates="games")
+    # target: Optional["Target"] = Relationship(back_populates="games")
     
     
