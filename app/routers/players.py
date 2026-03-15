@@ -9,7 +9,7 @@ from app.models.player import Player,PlayerCreate, PlayerRead, PlayerUpdate
 
 from app.security.auth import hash_password 
 
-router = APIRouter(prefix="/players", tags=["players"])
+router = APIRouter(prefix="/players", tags=["players"]) #creation route
 logger = logging.getLogger(__name__) # Récupère le logger configuré
 
 #Creer un joueur
