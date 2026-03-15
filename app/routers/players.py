@@ -6,18 +6,24 @@ from datetime import datetime
 from app.database import SessionDep, get_session 
 from app.models.player import Player,PlayerCreate, PlayerRead, PlayerUpdate
 
+from app.security.auth import hash_password 
+
 router = APIRouter(prefix="/players", tags=["players"])
 
 
 #Creer un joueur
 @router.post("/", response_model=PlayerRead)
 def create_player(player: PlayerCreate, session: Session = Depends(get_session)):
+    
+    hashed_pw = hash_password(player.password)
+    
     db_player = Player (
         username=player.username,
         email=player.email,
         name=player.name,
         age=player.age,
-        creation_date=datetime.utcnow()
+        creation_date=datetime.utcnow(),
+        hashed_password=hashed_pw
     )
     session.add(db_player)
     try:

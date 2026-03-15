@@ -9,7 +9,12 @@ class Player(SQLModel, table=True):
     email: str 
     name: str
     age: Optional[int] = None
+    #mdp hashé
+    hashed_password: str
     creation_date: datetime = Field(default_factory=datetime.utcnow)#Date crée auto quand utilisateur est ajouté
+    
+    
+    
     
 #Field est utilisé pour : -clé primaire
 #                         -val par défaut
@@ -25,6 +30,7 @@ class PlayerCreate(SQLModel):
     email: str
     name: str
     age: int | None = None
+    password: str
     
     
 # modèle pour renvoyer au client
