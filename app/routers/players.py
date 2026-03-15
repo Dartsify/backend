@@ -2,6 +2,7 @@ from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from datetime import datetime
+import logging
 
 from app.database import SessionDep, get_session 
 from app.models.player import Player,PlayerCreate, PlayerRead, PlayerUpdate
@@ -9,12 +10,13 @@ from app.models.player import Player,PlayerCreate, PlayerRead, PlayerUpdate
 from app.security.auth import hash_password 
 
 router = APIRouter(prefix="/players", tags=["players"])
-
+logger = logging.getLogger(__name__) # Récupère le logger configuré
 
 #Creer un joueur
 @router.post("/", response_model=PlayerRead)
 def create_player(player: PlayerCreate, session: Session = Depends(get_session)):
     
+    logger.info(f"Tentative de création du joueur : {player.username}")
     hashed_pw = hash_password(player.password)
     
     db_player = Player (
@@ -30,8 +32,10 @@ def create_player(player: PlayerCreate, session: Session = Depends(get_session))
         session.commit()
     except Exception as e:
         session.rollback()
+        logger.error(f"Échec de la création du joueur {player.username}. Erreur : {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     session.refresh(db_player)
+    logger.error(f"Joueur {player.username} créé avec succès.")
     return db_player
 
 
@@ -44,6 +48,7 @@ def get_players(
     session: Session = Depends(get_session)
 ):
     players = session.exec(select(Player).offset(offset).limit(limit)).all()
+    logger.error(f"Liste des joueurs retournée avec succès. ")
     return players
 
 

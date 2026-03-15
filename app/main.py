@@ -2,13 +2,28 @@ from fastapi import FastAPI
 from app.database import create_db_and_tables
 from app.routers.players import router as players_router
 from app.routers.auth import router as auth_router
+import logging
 # Create database tables on startup (when the app starts)
 app = FastAPI()
 
+#config du logger:
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s", # Format date et heure
+    handlers=[
+        logging.FileHandler("api.log"), # écrit logs dans ce fichier
+        logging.StreamHandler()         # Affiche aussi logs dans console 
+    ]
+)
+
+#creation objet logger qu'on utilise:
+logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 def on_startup():
+    logger.info("Démarrage de l'API Dartsify...")
     create_db_and_tables()
+    logger.info("Base de données et tables prêtes.")
 
 
 app.include_router(players_router) #mettre le /docs a la fin de l'url
