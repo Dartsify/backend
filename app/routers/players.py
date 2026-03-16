@@ -35,7 +35,7 @@ def create_player(player: PlayerCreate, session: Session = Depends(get_session))
         logger.error(f"Échec de la création du joueur {player.username}. Erreur : {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     session.refresh(db_player)
-    logger.error(f"Joueur {player.username} créé avec succès.")
+    logger.info(f"Joueur {player.username} créé avec succès.")
     return db_player
 
 
