@@ -1,11 +1,45 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# Environnement et Sécurité
+.env
+*.pem
+
+# Bases de données & Logs
 *.db
+*.sqlite
 *.sqlite3
 *.log
-.DS_Store
 
-# Pour env virtuel (mdp)
-.env 
+# Python (Caches et builds)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environnements Virtuels
+venv/
+env/
+.venv/
+env.bak/
+venv.bak/
+
+# Éditeurs de code (IDE)
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Fichiers Système (OS)
+.DS_Store
+Thumbs.db
