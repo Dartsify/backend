@@ -9,7 +9,7 @@ from app.security.auth import verify_password, create_access_token
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# Route pour login
+# Route pour login (centralisé dans auth ->permet porte d'entree pour tout le monde a l'avenir)
 @router.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
 
