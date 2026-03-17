@@ -32,15 +32,12 @@ class Player(SQLModel, table=True):
     participations: List["GameParticipation"] = Relationship(back_populates="player")
     throws: List["Throw"] = Relationship(back_populates="player") #back_populates : C'est ce qui indique à SQLModel de faire le lien dans les deux sens de manière automatique
     
-    
 #Field est utilisé pour : -clé primaire
 #                         -val par défaut
 #                         -index
 #                         -contrainte
 
 #Le | signifie que age peut etre un entier ou vide (None)    
-
-
 
 class PlayerCreate(SQLModel):
     username: str
@@ -49,7 +46,6 @@ class PlayerCreate(SQLModel):
     age: int | None = None
     password: str
     
-    
 # modèle pour renvoyer au client (profil perso)
 class PlayerRead(SQLModel):
     username: str
@@ -57,7 +53,6 @@ class PlayerRead(SQLModel):
     name: str
     age: Optional[int]
     creation_date: datetime
-
 
 # modèle pour mise à jour (tout optionnel)
 class PlayerUpdate(SQLModel):

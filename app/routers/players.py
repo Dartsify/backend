@@ -21,6 +21,7 @@ def create_player(player: PlayerCreate, session: Session = Depends(get_session))
     # Vérifier si pseudo existe déjà 
     existing_player = session.get(Player, player.username)
     if existing_player:
+        logger.error("Le pseudo qui essaie d'être créé est déjà pris ! ")
         raise HTTPException(status_code=400, detail="Ce pseudo est déjà pris.")
     
     hashed_pw = hash_password(player.password)

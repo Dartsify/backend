@@ -15,3 +15,18 @@ class Target(SQLModel, table=True):
     
     # Pour que SQLModel sache que plusieurs parties peuvent pointer sur la même cible :
     games : list["Game"]= Relationship(back_populates="target")
+    
+#Modele pour creer nouvelle cible
+class TargetCreate(SQLModel):
+    qr_code: str
+    name: str
+    location: str
+    
+#Modele pour renvoyer infos de cible
+class TargetRead(SQLModel):
+    qr_code: str
+    name: str
+    location: str
+    creation_date: datetime
+
+
