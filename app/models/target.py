@@ -1,6 +1,9 @@
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
+from typing import List, Optional, TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from app.models.game import Game
 
 class Target(SQLModel, table=True):
     
@@ -10,6 +13,5 @@ class Target(SQLModel, table=True):
     creation_date: datetime = Field(default_factory=datetime.utcnow)
     
     
-    #pas sur de ca mais :
-    #Pour que SQLModel sache que plusieurs parties peuvent pointer sur la même cible :
-    # games : list["Game"]= Relationship(back_populates="target")
+    # Pour que SQLModel sache que plusieurs parties peuvent pointer sur la même cible :
+    games : list["Game"]= Relationship(back_populates="target")
