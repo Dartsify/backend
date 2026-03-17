@@ -26,3 +26,26 @@ class Throw(SQLModel, table=True):
     #relations
     game: Optional["Game"] = Relationship(back_populates="throws")
     player: Optional["Player"] = Relationship(back_populates="throws")
+    
+    
+class ThrowCreate(SQLModel):
+    game_id: int
+    player_username: str
+    tour_number: int
+    dart_number: int  # 1, 2 ou 3
+    x_position: float
+    y_position: float
+    # On imagine que algorith envoie aussi les points qu'il a calculé
+    calculated_score: int
+    
+
+class ThrowRead(SQLModel):
+    id: int
+    game_id: int
+    player_username: str
+    tour_number: int
+    dart_number: int
+    x_position: float
+    y_position: float
+    calculated_score: int
+    time_throw: datetime

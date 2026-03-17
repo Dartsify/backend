@@ -4,6 +4,7 @@ from app.routers.players import router as players_router
 from app.routers.auth import router as auth_router
 from app.routers.targets import router as targets_router
 from app.routers.games import router as games_router
+from app.routers.throws import router as throws_router
 
 import logging
 import app.models
@@ -36,6 +37,7 @@ app.include_router(players_router) #mettre le /docs a la fin de l'url
 app.include_router(auth_router)
 app.include_router(targets_router)
 app.include_router(games_router)
+app.include_router(throws_router)
 
 #Test dans env (fastapi-test et taper : uvicorn app.main:app --reload)
 @app.get("/")

@@ -13,3 +13,6 @@ ADMIN_USERNAME=os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD", "admin_password")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin_dartsify@gmail.com")
 ADMIN_NAME=os.getenv("ADMIN_NAME","Admin Dartsify") 
+
+#Cle du raspberry 
+RASPBERRY_API_KEY= os.getenv("RASPBERRY_API_KEY", "CleParDefaut")
