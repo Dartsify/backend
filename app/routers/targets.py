@@ -56,7 +56,7 @@ def create_target(target: TargetCreate,
 
 # Lister toutes les cibles disponibles (enrgistrées dans la db)
 @router.get("/", response_model=List[TargetRead])
-def get_targets(offset: int = Query(0, ge=0, description="Décalage pour pagination"),
+def get_targets(offset: int = Query(0, ge=0, description="Décalage pour pagination"), #avec pagination 
     limit: int = Query(100, le=100, description="Nombre max de joueurs à retourner"),
     session: Session = Depends(get_session),
     current_user: Player= Depends(get_current_user)):

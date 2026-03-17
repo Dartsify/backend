@@ -53,22 +53,38 @@ def read_current_player(current_user: Player=Depends(get_current_user)):
     return current_user#si token valide on a direct le joueur
 
 
-#Lire tous les joueurs (avec offset) ->publique
+#Lire tous les joueurs (avec offset) -> seulement admin
 @router.get("/", response_model=List[PlayerPublic])
 def get_players(
     offset: int = Query(0, ge=0, description="Décalage pour pagination"),
     limit: int = Query(100, le=100, description="Nombre max de joueurs à retourner"),
-    session: Session = Depends(get_session)
-):
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=403, 
+            detail="Accès refusé. Seuls les administrateurs peuvent voir la liste des joueurs."
+        )
+    
     players = session.exec(select(Player).offset(offset).limit(limit)).all()
     logger.info(f"Liste des joueurs retournée avec succès. ")
     return players
 
 
 
-# #Lire un player spécifique basé sur son username ->publique
+# #Lire un player spécifique basé sur son username -> admin
 @router.get("/{username}", response_model=PlayerPublic)
-def read_player(username: str, session: Session = Depends(get_session)):
+def read_player(username: str,
+                session: Session = Depends(get_session),
+                current_user: Player = Depends(get_current_user)):
+    
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=403, 
+            detail="Accès refusé. Seuls les administrateurs peuvent cherhcer un joueur basé sur son username."
+        )
+    
     player = session.get(Player, username)
     if not player:
         raise HTTPException(status_code=404, detail=f"Player {username} not found")

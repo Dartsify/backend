@@ -3,6 +3,7 @@ from app.database import create_db_and_tables, create_initial_admin
 from app.routers.players import router as players_router
 from app.routers.auth import router as auth_router
 from app.routers.targets import router as targets_router
+from app.routers.games import router as games_router
 
 import logging
 import app.models
@@ -34,6 +35,7 @@ def on_startup():
 app.include_router(players_router) #mettre le /docs a la fin de l'url
 app.include_router(auth_router)
 app.include_router(targets_router)
+app.include_router(games_router)
 
 #Test dans env (fastapi-test et taper : uvicorn app.main:app --reload)
 @app.get("/")

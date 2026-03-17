@@ -28,3 +28,26 @@ class Game(SQLModel, table=True):
     participations: List["GameParticipation"] = Relationship(back_populates="game")
     throws: List["Throw"] = Relationship(back_populates="game")
     
+    
+#definition de nos modes de jeux
+class GameModeAllowed(str, Enum):
+    mode_501 = "501"
+    mode_301 = "301"
+    mode_perso = "perso"
+
+
+# ce que tel du joueur envoie quand il scanne la cible et choisit le mode
+class GameCreate(SQLModel):
+    target_qr_code: str
+    mode: GameModeAllowed = GameModeAllowed.mode_501 #pour dire que par défaut on lance un 501
+    
+#ce que APi renvoie quand partie créé
+class GameRead(SQLModel):
+    id: int
+    mode: str
+    start_date: datetime
+    status: GameStatus
+    target_qr_code: str
+    
+
+    

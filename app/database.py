@@ -46,4 +46,3 @@ def create_initial_admin():
             )
             session.add(new_admin)
             session.commit()
-            print(f"L'Admin système '{ADMIN_USERNAME}' a été créé avec succès.")
