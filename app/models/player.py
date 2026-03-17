@@ -29,6 +29,8 @@ class Player(SQLModel, table=True):
     hashed_password: str
     creation_date: datetime = Field(default_factory=datetime.utcnow)#Date crée auto quand utilisateur est ajouté
     
+    is_admin: bool = Field(default=False)
+    
     participations: List["GameParticipation"] = Relationship(back_populates="player")
     throws: List["Throw"] = Relationship(back_populates="player") #back_populates : C'est ce qui indique à SQLModel de faire le lien dans les deux sens de manière automatique
     

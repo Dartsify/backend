@@ -9,7 +9,7 @@ class Target(SQLModel, table=True):
     
     qr_code: str = Field(primary_key=True)
     name : str 
-    loacation: str
+    location: str
     creation_date: datetime = Field(default_factory=datetime.utcnow)
     
     
@@ -28,5 +28,10 @@ class TargetRead(SQLModel):
     name: str
     location: str
     creation_date: datetime
+    
+#modele pour modif cible
+class TargetUpdate(SQLModel):
+    name: Optional[str] = None
+    location: Optional[str] = None
 
 

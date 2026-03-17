@@ -45,6 +45,7 @@ def create_player(player: PlayerCreate, session: Session = Depends(get_session))
     logger.info(f"Joueur {player.username} créé avec succès.")
     return db_player
 
+
 #Lire son propre profil ->route protégée
 #mettre /me avant {username} pour que FastAPI ne confonde pas les 2routes
 @router.get("/me", response_model=PlayerRead)

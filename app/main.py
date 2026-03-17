@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.database import create_db_and_tables
+from app.database import create_db_and_tables, create_initial_admin
 from app.routers.players import router as players_router
 from app.routers.auth import router as auth_router
 from app.routers.targets import router as targets_router
@@ -27,6 +27,8 @@ def on_startup():
     logger.info("Démarrage de l'API Dartsify...")
     create_db_and_tables()
     logger.info("Base de données et tables prêtes.")
+    create_initial_admin()
+    logger.info("L'admin a bien été créé au démarrage ")
 
 
 app.include_router(players_router) #mettre le /docs a la fin de l'url
