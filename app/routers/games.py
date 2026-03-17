@@ -11,8 +11,12 @@ from app.security.auth import get_current_user
 
 from pydantic import BaseModel
 
+from app.utils.darts_logic import get_checkout_suggestion
+
 router = APIRouter(prefix="/games", tags=["games"])
 logger = logging.getLogger(__name__)
+
+
 
 #lancer une partie
 @router.post("/", response_model=GameRead)
@@ -136,11 +140,33 @@ def get_game_state(
     if not game:
         raise HTTPException(status_code=404, detail="Partie introuvable.")
 
-    #verif si joueur fait partie de la partie (a enlever si affichage sur un autre ecran par ex)
+    #verif si joueur fait partie de la partie (securite) (a enlever si affichage sur un autre ecran par ex)
     is_participant = any(p.player_username == current_user.username for p in game.participations)
     if not is_participant and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Vous ne participez pas à cette partie.")
+    
+    # transforme l'objet db "game" en un simple dictionnaire
+    game_dict = game.model_dump()
+    
+    # recréer la liste des participants avec suggestions
+    participations_enrichies = []
+    
+    for p in game.participations:
+        #transforme la ligne du participant en dictionnaire
+        p_dict = p.model_dump()
+        
+        # ajout de suggestion calculée
+        if game.mode in ["501", "301"]:
+            p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score)
+        else:
+            p_dict["checkout_suggestion"] = [] # Pas de suggestion pour le mode perso
+        
+        participations_enrichies.append(p_dict)
 
-    # en renvoyant simplement 'game',FastAPI va automatiquement lire la relation 'game.participations' 
-    # et construire le JSON complet grâce à GameReadWithParticipants !
-    return game
+    #remplace la vieille liste de base de données par notre nouvelle liste enrichie
+    game_dict["participations"] = participations_enrichies
+
+    # FastAPI va lire 'response_model=GameReadWithParticipants' et s'occuper du formatage final
+    return game_dict
+
+

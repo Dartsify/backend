@@ -29,6 +29,8 @@ class GameParticipationRead(SQLModel):
     current_score: int
     position: Optional[int] = None
     
+    checkout_suggestion: Optional[List[str]] = []
+    
 
 from app.models.game import GameRead
 # Le modèle complet de la partie AVEC ses joueurs

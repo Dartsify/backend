@@ -79,7 +79,7 @@ def register_throw(
     #Application de la logique du jeu (maj du score)
     points = throw_in.calculated_score
 
-    if game.mode in ["501", "301"]: #On fait un 501 sans la regle du double out ici implementé
+    if game.mode in ["501", "301"]: #On fait un 501 classique avec la regle du double out
         # on soustrait
         nouveau_score = participation.current_score - points
         

@@ -1,10 +1,10 @@
 import requests
-
+from app.config import RASPBERRY_API_KEY
 
 API_URL = "http://127.0.0.1:8000/throws/"
 
 # La même clé que dans .env 
-API_KEY = "super_secret_key_for_raspberry_api_12345" 
+API_KEY = RASPBERRY_API_KEY
 
 payload = {
     "game_id": 1,
