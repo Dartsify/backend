@@ -61,90 +61,95 @@ def verify_raspberry_pi(api_key: str = Security(api_key_header)):
 
 
 #enregistrer un lancer de flechette
-@router.post("/", response_model=ThrowRead)
+@router.post("/", response_model=ThrowRead) 
 def register_throw(
     throw_in: ThrowCreate,
     session: Session = Depends(get_session),
-    is_hardware_authorized: bool = Depends(verify_raspberry_pi)):
-    
-    # verif que partie existe et qu'elle est bien "en cours"
+    is_hardware_authorized: bool = Depends(verify_raspberry_pi)
+):
+    # recup la partie
     game = session.get(Game, throw_in.game_id)
-    if not game:
-        raise HTTPException(status_code=404, detail="Partie introuvable.")
-    if game.status != GameStatus.in_progress:
-        raise HTTPException(status_code=400, detail="Cette partie est déjà terminée.")
+    if not game or game.status != GameStatus.in_progress:
+        raise HTTPException(status_code=400, detail="Partie introuvable ou terminée.")
 
-    #recup la ligne de score du joueur en question
-    participation = session.get(GameParticipation, {"game_id": throw_in.game_id, "player_username": throw_in.player_username})
-    if not participation:
-        raise HTTPException(status_code=404, detail=f"Le joueur {throw_in.player_username} ne participe pas à cette partie.")
+    # deduction de qui doit jouer
+    joueur_actuel = game.current_player_username
+    tour_actuel = game.current_turn_number
+    flechette_actuelle = game.current_dart_number
 
-    # Le backend calcule lui-même les points avec X et Y (app.utils.dartboard_math)
+    participation = session.get(GameParticipation, {"game_id": game.id, "player_username": joueur_actuel})
+
+    # calcul des points
     points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position)
+    
+    # Règles du jeu et Bust
+    is_bust = False
+    is_victory = False
 
-    #Application de la logique du jeu (maj du score)
-    if game.mode in ["501", "301"]: #On fait un classique avec la regle du double out
-        # on soustrait
+    if game.mode in ["501", "301"]:
         nouveau_score = participation.current_score - points
-      
-        is_bust = False
         
-        # Condition 1 et 2 : on passe sous 0, ou on tombe sur 1 (impossible de finir par un double)
-        if nouveau_score < 0 or nouveau_score == 1:
+        if nouveau_score < 0 or nouveau_score == 1 or (nouveau_score == 0 and multiplicateur != 2):
             is_bust = True
-        # Condition 3 : on tombe sur 0, mais ce n'est pas un double 
-        elif nouveau_score == 0 and multiplicateur != 2:
-            is_bust = True
-
-        if is_bust:
-            logger.info(f"BUST ! Le joueur {throw_in.player_username} a busté ! (Score théorique: {nouveau_score})")
-        
-            #etape de trouve les points marques pendant ce tour ci pour les annules et revenir aux points du tour d'avant
-            previous_throws_this_turn = session.exec(
-                select(Throw)
-                .where(Throw.game_id == game.id)
-                .where(Throw.player_username == throw_in.player_username)
-                .where(Throw.tour_number == throw_in.tour_number)
+            
+            # Annulation des points
+            previous_throws = session.exec(
+                select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)
             ).all()
             
-            points_a_annuler = sum(t.calculated_score for t in previous_throws_this_turn)
+            points_a_annuler = sum(t.calculated_score for t in previous_throws)
+            participation.current_score += points_a_annuler            
             
-            participation.current_score = participation.current_score + points_a_annuler            
-            logger.info(f"Le score de {throw_in.player_username} est réinitialisé à {participation.current_score}")
-        
-        #condition de victoire en double out
         elif nouveau_score == 0 and multiplicateur == 2:
+            is_victory = True
             participation.current_score = 0
-            game.status = GameStatus.finished # joueur a gagné
-            logger.info(f"VICTOIRE ! {throw_in.player_username} a gagné la partie !")
-        
-        # lancer normal
+            game.status = GameStatus.finished
         else:
             participation.current_score = nouveau_score
-
+            
     elif game.mode == "perso":
-        # on additionne (High Score)
         participation.current_score += points
 
-    # historique de la fléchette lancée
+    # crée le lancer dans db avec les infos qu'on a déduites
     db_throw = Throw(
-        game_id=throw_in.game_id,
-        player_username=throw_in.player_username,
-        tour_number=throw_in.tour_number,
-        dart_number=throw_in.dart_number,
+        game_id=game.id,
+        player_username=joueur_actuel,
+        tour_number=tour_actuel,
+        dart_number=flechette_actuelle,
         x_position=throw_in.x_position,
         y_position=throw_in.y_position,
         calculated_score=points,
-        multiplier=multiplicateur # On enregistre le multiplicateur pour les stats 
+        multiplier=multiplicateur
     )
-
-    # sauver dasn db
     session.add(db_throw)
+
+    #intelligence du tour
+    if not is_victory:
+        fin_de_tour = is_bust or (flechette_actuelle == 3)
+
+        if fin_de_tour:
+            # cherche qui est suivant
+            participants = game.participations # Liste des joueurs de la partie
+            
+            # On trouve l'index du joueur actuel dans la liste
+            current_idx = next(i for i, p in enumerate(participants) if p.player_username == joueur_actuel)
+            
+            # On passe au suivant
+            next_idx = current_idx + 1
+            if next_idx >= len(participants):
+                next_idx = 0 # On revient au premier joueur
+                game.current_turn_number += 1 # Et on passe au tour suivant 
+                
+            game.current_player_username = participants[next_idx].player_username
+            game.current_dart_number = 1
+            logger.info(f"Fin de tour. C'est maintenant à {game.current_player_username} de jouer !")
+        else:
+            # Pas de fin de tour, on passe juste à la fléchette suivante
+            game.current_dart_number += 1
+
     session.add(participation)
-    session.add(game) # au cas ou on a change le statut de la partie à "finished"
+    session.add(game)
     session.commit()
     session.refresh(db_throw)
 
-    logger.info(f"Fléchette enregistrée ! {throw_in.player_username} a mis {points} points (Multiplicateur x{multiplicateur}). Nouveau score: {participation.current_score}")
-    
     return db_throw

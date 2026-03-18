@@ -18,7 +18,7 @@ class Throw(SQLModel, table=True):
     
     #Points (score et multiplier) calculés par backend (utils/dartboard_math) en fonction de x et y
     calculated_score: int
-    multiplier: int
+    multiplier: int = Field(default=1)
     
     #cles etrangeres
     game_id: int = Field(foreign_key="game.id")  
@@ -28,12 +28,10 @@ class Throw(SQLModel, table=True):
     game: Optional["Game"] = Relationship(back_populates="throws")
     player: Optional["Player"] = Relationship(back_populates="throws")
     
-    
+
+#Ce que le raspberry pi envoie
 class ThrowCreate(SQLModel):
     game_id: int
-    player_username: str
-    tour_number: int
-    dart_number: int  # 1, 2 ou 3
     x_position: float
     y_position: float
    
@@ -48,4 +46,5 @@ class ThrowRead(SQLModel):
     x_position: float
     y_position: float
     calculated_score: int
+    multiplier: int
     time_throw: datetime

@@ -35,7 +35,8 @@ def start_game(
     new_game = Game(
         mode=game_in.mode,
         target_qr_code=game_in.target_qr_code,
-        status=GameStatus.in_progress
+        status=GameStatus.in_progress,
+        current_player_username=current_user.username
     )
     session.add(new_game)
     session.commit()

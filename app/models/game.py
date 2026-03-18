@@ -23,6 +23,11 @@ class Game(SQLModel, table=True):
     #cle etrangere vers cible
     target_qr_code: str = Field(foreign_key="target.qr_code") #cle etrangere venant de la table target
     
+    #gestion des tours (en live)
+    current_player_username: Optional[str] = None
+    current_turn_number: int = Field(default=1)
+    current_dart_number: int = Field(default=1)
+    
     # relation optionnelle pour SQLAlchemy / ORM
     target: Optional["Target"] = Relationship(back_populates="games")
     participations: List["GameParticipation"] = Relationship(back_populates="game")
