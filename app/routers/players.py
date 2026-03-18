@@ -92,47 +92,51 @@ def read_player(username: str,
 
 
 # #Modifier un joueur (update)-> protégé car ca doit etre son propre profil
-@router.patch("/{username}", response_model=PlayerRead)
-def update_player(username: str,
-                  player_update: PlayerUpdate,
-                  session: Session = Depends(get_session),
-                  current_user: Player = Depends(get_current_user)):#verif du token
+@router.patch("/me", response_model=PlayerRead)
+def update_current_player(
+    player_update: PlayerUpdate,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
     
-    if current_user.username != username : #verif si joueuer connecte est bien celui de l'url
-        logger.warning(f"Alerte : {current_user.username} a essayé de modifier le compte de {username}")
-        raise HTTPException(status_code=403, detail="Vous n'avez pas l'autorisation de modifier ce compte.")
-
-    player = session.get(Player, username) #recup joueur existant
-    if not player:
-        raise HTTPException(status_code=404, detail=f"Player {username} not found")
-
+    # On met à jour uniquement les champs envoyés
     update_data = player_update.model_dump(exclude_unset=True)
-    player.sqlmodel_update(update_data) #appliquer mises a jour
+    current_user.sqlmodel_update(update_data)
 
-    session.add(player)
+    session.add(current_user)
     session.commit()
-    session.refresh(player)
-    logger.info(f"Le joueur {username} a mis à jour son profil.")
-    return player #Attention de bien renvoye ce qu'on veut dans le Json, si on ne veut pas changer email, on supprime la ligne email
+    session.refresh(current_user)
+    
+    logger.info(f"Le joueur {current_user.username} a mis à jour son profil.")
+    return current_user
+
 
 
 # #Supprimer un joueur(delete)->protégé (ca doit etre son profil a lui)
-@router.delete("/{username}")
-def delete_player(username: str,
-                  session: Session = Depends(get_session),
-                  current_user: Player = Depends(get_current_user)):
-    
-    if current_user.username != username:
-        logger.warning(f"Alerte : {current_user.username} a essayé de supprimer le compte de {username}")
-        raise HTTPException(status_code=403, detail="Vous n'avez pas l'autorisation de supprimer ce compte.")
-    
-    player = session.get(Player, username)
-    if not player:
-        raise HTTPException(status_code=404, detail=f"Player {username} not found")
-    session.delete(player)
+@router.delete("/me")
+def delete_current_player(
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)
+):
+    # Nettoyage de sécurité : On supprime d'abord ses participations 
+    # pour éviter l'erreur de Clé Primaire (AssertionError)
+    participations = session.exec(
+        select(GameParticipation).where(GameParticipation.player_username == current_user.username)
+    ).all()
+    for p in participations:
+        session.delete(p)
+        
+    #  upprime aussi tous ses lancers (Throws)
+    throws = session.exec(
+        select(Throw).where(Throw.player_username == current_user.username)
+    ).all()
+    for t in throws:
+        session.delete(t)
+        
+    session.delete(current_user)
     session.commit()
-    logger.info(f"Le joueur {username} a supprimé son compte.")
-    return {"ok": True}
+    
+    logger.info(f"Le joueur {current_user.username} a supprimé son compte et son historique.")
+    return {"ok": True, "message": "Votre compte a été supprimé avec succès."}
 
 
 
