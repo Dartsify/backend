@@ -48,3 +48,12 @@ class ThrowRead(SQLModel):
     calculated_score: int
     multiplier: int
     time_throw: datetime
+    
+    
+from pydantic import BaseModel
+
+# Ce que le téléphone/pc enverra pour un lancer manuel ou raté
+class ManualThrowCreate(BaseModel):
+    game_id: int
+    points: int
+    multiplier: int = 1
