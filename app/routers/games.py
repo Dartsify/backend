@@ -5,7 +5,7 @@ import logging
 from app.database import get_session
 from app.models.game import Game, GameCreate, GameRead, GameStatus
 from app.models.target import Target
-from app.models.game_participation import GameParticipation
+from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player
 from app.security.auth import get_current_user
 
@@ -56,7 +56,8 @@ def start_game(
     participation = GameParticipation(
         game_id=new_game.id,
         player_username=current_user.username,
-        current_score=starting_score
+        current_score=starting_score,
+        status = ValidationStatus.validated
     )
     session.add(participation)
     session.commit()
@@ -110,7 +111,8 @@ def add_player_to_game(
     new_participation = GameParticipation(
         game_id=game.id,
         player_username=friend.username,
-        current_score=starting_score
+        current_score=starting_score,
+        status=ValidationStatus.pending
     )
     
     session.add(new_participation)
@@ -125,6 +127,54 @@ def add_player_to_game(
         "starting_score": starting_score
     }
     
+
+
+
+# Route pour ACCEPTER (Valider) sa participation
+@router.post("/{game_id}/validate")
+def validate_participation(
+    game_id: int, 
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)
+):
+    participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
+    
+    if not participation:
+        raise HTTPException(status_code=404, detail="Participation introuvable.")
+    if participation.status == ValidationStatus.validated:
+        raise HTTPException(status_code=400, detail="Partie déjà validée.")
+
+    participation.status = ValidationStatus.validated
+    session.add(participation)
+    session.commit()
+    
+    logger.info(f"Le joueur {current_user.username} a validé sa participation à la partie {game_id}.")
+    return {"message": "Partie validée avec succès ! Les statistiques comptent désormais pour votre profil."}
+
+# Route pour REFUSER (Rejeter) sa participation
+@router.post("/{game_id}/reject")
+def reject_participation(
+    game_id: int, 
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)
+):
+    participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
+    
+    if not participation:
+        raise HTTPException(status_code=404, detail="Participation introuvable.")
+
+    # On passe en rejected (on ne supprime pas (throw) pour ne pas casser la partie)
+    participation.status = ValidationStatus.rejected
+    session.add(participation)
+    session.commit()
+    
+    logger.info(f"Le joueur {current_user.username} a refusé sa participation à la partie {game_id}.")
+    return {"message": "Partie refusée. Elle n'impactera pas vos statistiques."}
+
+
+
+    
+
 
 #Route pour voir lobby (voir quels joueurs sont la pour debut de partie)
 #on initialise donc la partie ici
@@ -169,5 +219,4 @@ def get_game_state(
 
     # FastAPI va lire 'response_model=GameReadWithParticipants' et s'occuper du formatage final
     return game_dict
-
 

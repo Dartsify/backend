@@ -133,3 +133,23 @@ def delete_player(username: str,
     session.commit()
     logger.info(f"Le joueur {username} a supprimé son compte.")
     return {"ok": True}
+
+
+
+from app.models.game_participation import GameParticipation, ValidationStatus
+# Route pour voir ses invitations en attente (notification)
+@router.get("/me/pending")
+def get_pending_invitations(
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)
+):
+    from sqlmodel import select
+    
+    # On cherche toutes les participations du joueur qui sont en "pending"
+    pending = session.exec(
+        select(GameParticipation)
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.pending)
+    ).all()
+    
+    return pending

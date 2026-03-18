@@ -1,10 +1,17 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List, TYPE_CHECKING
+from enum import Enum
 
 if TYPE_CHECKING:
     from app.models.game import Game
     from app.models.player import Player
     from app.models.throw import Throw
+    
+class ValidationStatus(str, Enum):
+    pending ="pending" #stand by, partie a ete jouee et en attente de validation
+    validated ="validated" #stats sont comptabilisees pour joueur
+    rejected = "rejected" #pas lui donc on compte pas les stats
+     
 
 class GameParticipation(SQLModel, table=True):
     #id: Optional[int] = Field(default=None, primary_key=True)
@@ -16,7 +23,8 @@ class GameParticipation(SQLModel, table=True):
     final_score: Optional[int] = None
     position: Optional[int] = None #position du joueur au classement (optionnel a mon avis)
 
-
+    #Par defaut quand on invite qqun, c'est en stand by mais l'hote de la partie sera mis en validated d'office
+    status: ValidationStatus = Field(default=ValidationStatus.pending)
 
     # Relations ORM (facultative mais pourrait servir pour naviguer)
     player: Optional["Player"] = Relationship(back_populates="participations")
@@ -28,6 +36,7 @@ class GameParticipationRead(SQLModel):
     player_username: str
     current_score: int
     position: Optional[int] = None
+    status: ValidationStatus
     
     checkout_suggestion: Optional[List[str]] = []
     
