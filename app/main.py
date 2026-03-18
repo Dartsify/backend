@@ -39,7 +39,7 @@ app.include_router(targets_router)
 app.include_router(games_router)
 app.include_router(throws_router)
 
-#Test dans env (fastapi-test et taper : uvicorn app.main:app --reload)
+#Test dans env (DartsifyBackend et taper : uvicorn app.main:app --reload)
 @app.get("/")
 def root():
     return {"message": "API is running "}

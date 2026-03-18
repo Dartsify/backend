@@ -16,8 +16,9 @@ class Throw(SQLModel, table=True):
     x_position: float #position pour retrouver score avec algo de reconnaissance
     y_position: float
     
-    #Points calculés par backend en fonction de x et y
-    calculated_score: Optional[int] = Field(default=None)
+    #Points (score et multiplier) calculés par backend (utils/dartboard_math) en fonction de x et y
+    calculated_score: int
+    multiplier: int
     
     #cles etrangeres
     game_id: int = Field(foreign_key="game.id")  
@@ -35,8 +36,7 @@ class ThrowCreate(SQLModel):
     dart_number: int  # 1, 2 ou 3
     x_position: float
     y_position: float
-    # On imagine que algorith envoie aussi les points qu'il a calculé
-    calculated_score: int
+   
     
 
 class ThrowRead(SQLModel):

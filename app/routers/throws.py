@@ -11,6 +11,8 @@ from app.models.player import Player
 
 from app.config import RASPBERRY_API_KEY #cle secrete pour lier raspberry
 
+from app.utils.dartboard_math import get_score_and_multiplier
+
 router = APIRouter(prefix="/throws", tags=["throws (Only for Raspberry Pi)"])
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,8 @@ def verify_raspberry_pi(api_key: str = Security(api_key_header)):
 
 
 
-#enristrer un lancer de flechette
+
+#enregistrer un lancer de flechette
 @router.post("/", response_model=ThrowRead)
 def register_throw(
     throw_in: ThrowCreate,
@@ -76,16 +79,25 @@ def register_throw(
     if not participation:
         raise HTTPException(status_code=404, detail=f"Le joueur {throw_in.player_username} ne participe pas à cette partie.")
 
-    #Application de la logique du jeu (maj du score)
-    points = throw_in.calculated_score
+    # Le backend calcule lui-même les points avec X et Y (app.utils.dartboard_math)
+    points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position)
 
-    if game.mode in ["501", "301"]: #On fait un 501 classique avec la regle du double out
+    #Application de la logique du jeu (maj du score)
+    if game.mode in ["501", "301"]: #On fait un classique avec la regle du double out
         # on soustrait
         nouveau_score = participation.current_score - points
+      
+        is_bust = False
         
-        # Si en dessous de 0, on "Bust"
-        if nouveau_score < 0:
-            logger.info(f"Le joueur {throw_in.player_username} a busté ! Score reste à {participation.current_score}")
+        # Condition 1 et 2 : on passe sous 0, ou on tombe sur 1 (impossible de finir par un double)
+        if nouveau_score < 0 or nouveau_score == 1:
+            is_bust = True
+        # Condition 3 : on tombe sur 0, mais ce n'est pas un double 
+        elif nouveau_score == 0 and multiplicateur != 2:
+            is_bust = True
+
+        if is_bust:
+            logger.info(f"BUST ! Le joueur {throw_in.player_username} a busté ! (Score théorique: {nouveau_score})")
         
             #etape de trouve les points marques pendant ce tour ci pour les annules et revenir aux points du tour d'avant
             previous_throws_this_turn = session.exec(
@@ -100,10 +112,13 @@ def register_throw(
             participation.current_score = participation.current_score + points_a_annuler            
             logger.info(f"Le score de {throw_in.player_username} est réinitialisé à {participation.current_score}")
         
-        elif nouveau_score == 0:
+        #condition de victoire en double out
+        elif nouveau_score == 0 and multiplicateur == 2:
             participation.current_score = 0
-            game.status = GameStatus.finished # LE JOUEUR A GAGNÉ !
+            game.status = GameStatus.finished # joueur a gagné
             logger.info(f"VICTOIRE ! {throw_in.player_username} a gagné la partie !")
+        
+        # lancer normal
         else:
             participation.current_score = nouveau_score
 
@@ -119,7 +134,8 @@ def register_throw(
         dart_number=throw_in.dart_number,
         x_position=throw_in.x_position,
         y_position=throw_in.y_position,
-        calculated_score=points
+        calculated_score=points,
+        multiplier=multiplicateur # On enregistre le multiplicateur pour les stats 
     )
 
     # sauver dasn db
@@ -129,6 +145,6 @@ def register_throw(
     session.commit()
     session.refresh(db_throw)
 
-    logger.info(f"Fléchette enregistrée ! {throw_in.player_username} a mis {points} points. Nouveau score: {participation.current_score}")
+    logger.info(f"Fléchette enregistrée ! {throw_in.player_username} a mis {points} points (Multiplicateur x{multiplicateur}). Nouveau score: {participation.current_score}")
     
     return db_throw
