@@ -73,24 +73,6 @@ def get_players(
 
 
 
-# #Lire un player spécifique basé sur son username -> admin
-@router.get("/{username}", response_model=PlayerPublic)
-def read_player(username: str,
-                session: Session = Depends(get_session),
-                current_user: Player = Depends(get_current_user)):
-    
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=403, 
-            detail="Accès refusé. Seuls les administrateurs peuvent cherhcer un joueur basé sur son username."
-        )
-    
-    player = session.get(Player, username)
-    if not player:
-        raise HTTPException(status_code=404, detail=f"Player {username} not found")
-    return player
-
-
 # #Modifier un joueur (update)-> protégé car ca doit etre son propre profil
 @router.patch("/me", response_model=PlayerRead)
 def update_current_player(
@@ -157,6 +139,24 @@ def get_pending_invitations(
     ).all()
     
     return pending
+
+# #Lire un player spécifique basé sur son username -> admin
+@router.get("/{username}", response_model=PlayerPublic)
+def read_player(username: str,
+                session: Session = Depends(get_session),
+                current_user: Player = Depends(get_current_user)):
+    
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=403, 
+            detail="Accès refusé. Seuls les administrateurs peuvent cherhcer un joueur basé sur son username."
+        )
+    
+    player = session.get(Player, username)
+    if not player:
+        raise HTTPException(status_code=404, detail=f"Player {username} not found")
+    return player
+
 
 
 from app.models.throw import Throw
