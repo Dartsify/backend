@@ -128,23 +128,31 @@ def register_throw(
         fin_de_tour = is_bust or (flechette_actuelle == 3)
 
         if fin_de_tour:
-            # cherche qui est suivant
-            participants = game.participations # Liste des joueurs de la partie
-            
-            # On trouve l'index du joueur actuel dans la liste
+            # cherche qui est le joueur suivant
+            participants = game.participations
             current_idx = next(i for i, p in enumerate(participants) if p.player_username == joueur_actuel)
-            
-            # On passe au suivant
             next_idx = current_idx + 1
+            
+            # Si on a fait le tour de tous les joueurs (Fin de la manche)
             if next_idx >= len(participants):
-                next_idx = 0 # On revient au premier joueur
-                game.current_turn_number += 1 # Et on passe au tour suivant 
-                
-            game.current_player_username = participants[next_idx].player_username
-            game.current_dart_number = 1
-            logger.info(f"Fin de tour. C'est maintenant à {game.current_player_username} de jouer !")
+                if game.mode == "perso":
+                    #mode perso doit s'arrete
+                    game.status = GameStatus.finished
+                    logger.info("Fin de la partie Mode Perso ! Tout le monde a lancé ses 3 fléchettes.")
+                else:
+                    # Pour le 501/301, on passe au tour suivant
+                    next_idx = 0 
+                    game.current_turn_number += 1 
+                    game.current_player_username = participants[next_idx].player_username
+                    game.current_dart_number = 1
+                    logger.info(f"Nouveau tour ! C'est à {game.current_player_username}.")
+            else:
+                # passe au joueur suivant dans le MÊME tour
+                game.current_player_username = participants[next_idx].player_username
+                game.current_dart_number = 1
+                logger.info(f"Fin de tour. C'est maintenant à {game.current_player_username} de jouer !")
         else:
-            # Pas de fin de tour, on passe juste à la fléchette suivante
+            # passe juste à la fléchette suivante
             game.current_dart_number += 1
 
     session.add(participation)

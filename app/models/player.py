@@ -68,3 +68,13 @@ class PlayerPublic(SQLModel):
     name: str
     age: Optional[int]
     creation_date: datetime
+
+
+#Modele pour les stats d'un joueur    
+from pydantic import BaseModel
+class PlayerStats(BaseModel):
+    total_games_played: int
+    total_wins: int
+    win_rate_percentage: float
+    average_points_per_dart: float
+    total_darts_thrown: int

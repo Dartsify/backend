@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 
 from app.database import SessionDep, get_session 
-from app.models.player import Player, PlayerPublic, PlayerCreate, PlayerRead, PlayerUpdate
+from app.models.player import PlayerStats, Player, PlayerPublic, PlayerCreate, PlayerRead, PlayerUpdate
 
 from app.security.auth import hash_password, get_current_user
 
@@ -153,3 +153,69 @@ def get_pending_invitations(
     ).all()
     
     return pending
+
+
+from app.models.throw import Throw
+#Route pour avoir les stats perso du joueur
+@router.get("/me/stats", response_model=PlayerStats)
+def get_my_stats(
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # récup UNIQUEMENT les participations "validées" (validated) du joueur
+    participations_validees = session.exec(
+        select(GameParticipation)
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+    ).all()
+
+    total_games = len(participations_validees)
+    total_wins = 0
+    
+    # calcul les victoires selon les règles du mode (501 ou perso)
+    for p in participations_validees:
+        # Cas 1 : 501 ou 301 (Il faut arriver à 0)
+        if p.game.mode in ["501", "301"]:
+            if p.current_score == 0:
+                total_wins += 1
+                
+        # Cas 2 : Mode Perso (Le plus haut score gagne)
+        elif p.game.mode == "perso":
+            #trouve le meilleur score de cette partie en lisant les autres joueurs
+            meilleur_score = max(participant.current_score for participant in p.game.participations)
+            
+            # Si le joueur a ce meilleur score (et qu'il a mis au moins 1 point), c'est une victoire !
+            # (En cas d'égalité au meilleur score, ça compte comme une victoire pour les deux)
+            if p.current_score == meilleur_score and meilleur_score > 0:
+                total_wins += 1
+
+    # Calcul du pourcentage de victoire
+    win_rate = (total_wins / total_games * 100) if total_games > 0 else 0.0
+
+    # récup tous les lancers du joueur seulement pour les parties validées 
+    validated_game_ids = [p.game_id for p in participations_validees]
+    
+    total_throws = 0
+    average_ppd = 0.0
+
+    if validated_game_ids:
+        throws = session.exec(
+            select(Throw)
+            .where(Throw.player_username == current_user.username)
+            .where(Throw.game_id.in_(validated_game_ids)) # filtre par liste d'ID 
+        ).all()
+
+        total_throws = len(throws)
+        
+        # Calcul du PPD (Points Per Dart)
+        if total_throws > 0:
+            total_score = sum(t.calculated_score for t in throws)
+            average_ppd = total_score / total_throws
+
+    return PlayerStats(
+        total_games_played=total_games,
+        total_wins=total_wins,
+        win_rate_percentage=round(win_rate, 1), # arrondit 1 chiffre après la virgule
+        average_points_per_dart=round(average_ppd, 2), # arrondi 2 chiffres après la virgule
+        total_darts_thrown=total_throws
+    )
