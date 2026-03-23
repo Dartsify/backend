@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 import logging
-
+from typing import List
 from app.database import get_session
 from app.models.game import Game, GameCreate, GameRead, GameStatus
 from app.models.target import Target
@@ -77,12 +77,16 @@ def add_player_to_game(
     game_id: int,
     invite: PlayerInvite,
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user) # Le joueur qui invite doit être connecté
-):
+    current_user: Player = Depends(get_current_user)): # Le joueur qui invite doit être connecte
+    
     # vérif si partie existe
     game = session.get(Game, game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    if game.status != GameStatus.in_progress:
+        raise HTTPException(status_code=400, detail="Impossible de rejoindre une partie terminée.")
+
 
     # verif si joueur qui invite fait bien partie de ce jeu (Seul l'hôte/un participant peut inviter d'autres)
     host_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
@@ -220,3 +224,32 @@ def get_game_state(
     # FastAPI va lire 'response_model=GameReadWithParticipants' et s'occuper du formatage final
     return game_dict
 
+
+#Route pour lister toutes les parties (historique de ses propres parties en tant que joueur)
+# et si admin il a les parties de tout le monde
+@router.get("/", response_model=List[GameRead])
+def get_all_games(
+    limit: int = 50,
+    offset: int = 0,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    if current_user.is_admin:
+        # L'admin voit tout (avec un tri par date décroissante pour avoir les plus récentes d'abord)
+        games = session.exec(
+            select(Game)
+            .order_by(Game.start_date.desc())
+            .offset(offset)
+            .limit(limit)).all()
+        return games
+    else:
+        # Le joueur normal ne voit que les parties auxquelles il a participé
+        #(JOIN entre la table Game et GameParticipation)
+        games = session.exec(
+            select(Game)
+            .join(GameParticipation)
+            .where(GameParticipation.player_username == current_user.username)
+            .order_by(Game.start_date.desc())
+            .offset(offset)
+            .limit(limit)).all()
+        return games

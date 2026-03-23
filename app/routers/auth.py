@@ -15,19 +15,37 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = D
 
     # recup joueur avec son username
     player = session.exec(select(Player).where(Player.username == form_data.username)).first()
+    
+    #Cas 1 : Le pseudo n'existe pas
     if not player:
-        raise HTTPException(status_code=400, detail="Username incorrect")
+        raise HTTPException(
+            status_code=401,
+            detail=[
+                {
+                    "Field": "username",
+                    "Value": form_data.username,
+                    "Message": "Ce nom d'utilisateur n'existe pas."
+                }
+            ]
+        )
 
-    # verif mdp
+    # Cas n2 : Le pseudo existe, mais le mot de passe est faux
     if not verify_password(form_data.password, player.hashed_password):
-        raise HTTPException(status_code=400, detail="Password incorrect")
+        raise HTTPException(
+            status_code=401,
+            detail=[
+                {
+                    "Field": "password",
+                    "Value": form_data.password, # (en prod, évite de renvoyer le mdp en clair, mais pour le dev c'est ok)
+                    "Message": "Le mot de passe est incorrect."
+                }
+            ]
+        )
 
-    # cree tokenT
+    #Si tout OK, on crée le token
     access_token = create_access_token({"sub": player.username})
 
     return {
         "access_token": access_token,
-        "token_type": "bearer" #vient du protocol Oauth 2.0
-        #Pour faire une requête vers une route protégée, il faut mettre ce token dans l’en-tête HTTP Authorization comme ceci : 
-        # "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        "token_type": "bearer"
     }

@@ -18,6 +18,9 @@ def create_player(player: PlayerCreate, session: Session = Depends(get_session))
     
     logger.info(f"Tentative de création du joueur : {player.username}")
     
+    #forcer email en minuscule avant les verif
+    player.email = player.email.lower()
+    
     # Vérifier si pseudo existe déjà 
     existing_player = session.get(Player, player.username)
     if existing_player:

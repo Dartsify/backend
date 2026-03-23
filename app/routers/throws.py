@@ -6,7 +6,7 @@ import logging
 from app.database import get_session
 from app.models.throw import Throw, ThrowCreate, ThrowRead
 from app.models.game import Game, GameStatus
-from app.models.game_participation import GameParticipation
+from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player
 
 from app.config import RASPBERRY_API_KEY #cle secrete pour lier raspberry
@@ -65,8 +65,8 @@ def verify_raspberry_pi(api_key: str = Security(api_key_header)):
 def register_throw(
     throw_in: ThrowCreate,
     session: Session = Depends(get_session),
-    is_hardware_authorized: bool = Depends(verify_raspberry_pi)
-):
+    is_hardware_authorized: bool = Depends(verify_raspberry_pi)):
+    
     # recup la partie
     game = session.get(Game, throw_in.game_id)
     if not game or game.status != GameStatus.in_progress:
@@ -128,13 +128,14 @@ def register_throw(
         fin_de_tour = is_bust or (flechette_actuelle == 3)
 
         if fin_de_tour:
-            # cherche qui est le joueur suivant
-            participants = game.participations
-            current_idx = next(i for i, p in enumerate(participants) if p.player_username == joueur_actuel)
+            # ne prend QUE les joueurs validés(non pending)
+            participants_actifs = [p for p in game.participations if p.status == ValidationStatus.validated]
+            
+            current_idx = next(i for i, p in enumerate(participants_actifs) if p.player_username == joueur_actuel)
             next_idx = current_idx + 1
             
             # Si on a fait le tour de tous les joueurs (Fin de la manche)
-            if next_idx >= len(participants):
+            if next_idx >= len(participants_actifs):
                 if game.mode == "perso":
                     #mode perso doit s'arrete
                     game.status = GameStatus.finished
@@ -143,12 +144,12 @@ def register_throw(
                     # Pour le 501/301, on passe au tour suivant
                     next_idx = 0 
                     game.current_turn_number += 1 
-                    game.current_player_username = participants[next_idx].player_username
+                    game.current_player_username = participants_actifs[next_idx].player_username
                     game.current_dart_number = 1
                     logger.info(f"Nouveau tour ! C'est à {game.current_player_username}.")
             else:
                 # passe au joueur suivant dans le MÊME tour
-                game.current_player_username = participants[next_idx].player_username
+                game.current_player_username = participants_actifs[next_idx].player_username
                 game.current_dart_number = 1
                 logger.info(f"Fin de tour. C'est maintenant à {game.current_player_username} de jouer !")
         else:
@@ -237,7 +238,7 @@ def register_manual_throw(
         fin_de_tour = is_bust or (flechette_actuelle == 3)
 
         if fin_de_tour:
-            participants_actifs = [p for p in game.participations if p.status == "validated"]
+            participants_actifs = [p for p in game.participations if p.status == ValidationStatus.validated]
             current_idx = next(i for i, p in enumerate(participants_actifs) if p.player_username == joueur_actuel)
             next_idx = current_idx + 1
             

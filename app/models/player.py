@@ -2,6 +2,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from pydantic import EmailStr, field_validator
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
+from pydantic_core import PydanticCustomError
 
 if TYPE_CHECKING:
     # On importe les autres tables uniquement "virtuellement" pour éviter l'import circulaire

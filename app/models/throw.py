@@ -55,5 +55,5 @@ from pydantic import BaseModel
 # Ce que le téléphone/pc enverra pour un lancer manuel ou raté
 class ManualThrowCreate(BaseModel):
     game_id: int
-    points: int
-    multiplier: int = 1
+    points: int =Field(ge=0, le=60, description="Le score d'une fléchette est de max 60 (T20)")
+    multiplier: int = Field(ge=1, le= 3, description="Simple (1), Double (2) ou Triple (3)")
