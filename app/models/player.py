@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class Player(SQLModel, table=True):
 
     username: str = Field(primary_key=True, index = True) #vu qeu cle primaire, pas le choix d'avoir une valeur (ne peut pas etre none)
-    email: str 
+    email: str = Field(unique=True)
     name: str
     age: Optional[int] = None
     #mdp hashé

@@ -5,11 +5,21 @@ from app.routers.auth import router as auth_router
 from app.routers.targets import router as targets_router
 from app.routers.games import router as games_router
 from app.routers.throws import router as throws_router
+from fastapi.middleware.cors import CORSMiddleware
 
 import logging
 import app.models
 # Create database tables on startup (when the app starts)
-app = FastAPI()
+app = FastAPI(title="Dartsify API")
+
+# Autoriser le Front-end à communiquer avec l'API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # En prod -> mettre la vraie URL du front (ex: ["https://dartsify.com"])
+    allow_credentials=True,
+    allow_methods=["*"], # Autorise les GET, POST, PATCH, DELETE
+    allow_headers=["*"], # Autorise le header "Authorization" pour le Token
+)
 
 #config du logger:
 logging.basicConfig(

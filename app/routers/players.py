@@ -24,6 +24,11 @@ def create_player(player: PlayerCreate, session: Session = Depends(get_session))
         logger.error("Le pseudo qui essaie d'être créé est déjà pris ! ")
         raise HTTPException(status_code=400, detail="Ce pseudo est déjà pris.")
     
+    #verif si email existe deja a un autre joueur
+    existing_email = session.exec(select(Player).where(Player.email == player.email)).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Cet email est déjà utilisé par un autre compte.")
+    
     hashed_pw = hash_password(player.password)
     
     db_player = Player (
@@ -117,15 +122,30 @@ def update_password(
 
 
 
-
+from app.models.game import Game, GameStatus
 # #Supprimer un joueur(delete)->protégé (ca doit etre son profil a lui)
 @router.delete("/me")
 def delete_current_player(
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)
-):
+    current_user: Player = Depends(get_current_user)):
+    
+    # verif si le joueur est dans une partie "in_progress" -> eviter de faire crash la partie
+    # s'il est dedans
+    partie_en_cours = session.exec(
+        select(GameParticipation)
+        .join(Game)
+        .where(GameParticipation.player_username == current_user.username)
+        .where(Game.status == GameStatus.in_progress)).first()
+
+    if partie_en_cours:
+        raise HTTPException(
+            status_code=400, 
+            detail="Impossible de supprimer votre compte pendant une partie en cours. Terminez ou quittez la partie d'abord."
+        )
+    
+    
     # Nettoyage de sécurité : On supprime d'abord ses participations 
-    # pour éviter l'erreur de Clé Primaire (AssertionError)
+    # pour éviter l'erreur de clé primaire (AssertionError)
     participations = session.exec(
         select(GameParticipation).where(GameParticipation.player_username == current_user.username)
     ).all()
