@@ -46,7 +46,8 @@ class PlayerCreate(SQLModel):
     username: str
     email: EmailStr
     name: str
-    age: int | None = None
+    #gt = greather than (0)
+    age: int = Field(gt=0, description="L'âge doit etre strictement supérieur à 0")
     password: str
     
     #Validateur de mdp (6 caractere et 1majuscule (peut etre changer))
