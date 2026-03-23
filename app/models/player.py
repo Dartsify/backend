@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
+from pydantic import EmailStr, field_validator
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 
@@ -43,10 +44,22 @@ class Player(SQLModel, table=True):
 
 class PlayerCreate(SQLModel):
     username: str
-    email: str
+    email: EmailStr
     name: str
     age: int | None = None
     password: str
+    
+    #Validateur de mdp (6 caractere et 1majuscule (peut etre changer))
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, value):
+        if len(value) < 6:
+            raise ValueError("Le mot de passe doit contenir au moins 6 caractères.")
+        if not any(char.isupper() for char in value):
+            raise ValueError("Le mot de passe doit contenir au moins une majuscule.")
+        return value
+    
+    
     
 # modèle pour renvoyer au client (profil perso)
 class PlayerRead(SQLModel):
@@ -55,10 +68,11 @@ class PlayerRead(SQLModel):
     name: str
     age: Optional[int]
     creation_date: datetime
+    
 
 # modèle pour mise à jour (tout optionnel)
 class PlayerUpdate(SQLModel):
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     name: Optional[str] = None
     age: Optional[int] = None
     
@@ -78,3 +92,18 @@ class PlayerStats(BaseModel):
     win_rate_percentage: float
     average_points_per_dart: float
     total_darts_thrown: int
+    
+    
+#Modele pour changer le mot de passe
+class PasswordUpdate(BaseModel):
+    old_password: str
+    new_password: str
+    
+    @field_validator('new_password')
+    @classmethod
+    def validate_new_password(cls, value):
+        if len(value) < 6:
+            raise ValueError("Le nouveau mot de passe doit contenir au moins 6 caractères.")
+        if not any(char.isupper() for char in value):
+            raise ValueError("Le nouveau mot de passe doit contenir au moins une majuscule.")
+        return value

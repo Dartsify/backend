@@ -5,9 +5,9 @@ from datetime import datetime
 import logging
 
 from app.database import SessionDep, get_session 
-from app.models.player import PlayerStats, Player, PlayerPublic, PlayerCreate, PlayerRead, PlayerUpdate
+from app.models.player import PasswordUpdate, PlayerStats, Player, PlayerPublic, PlayerCreate, PlayerRead, PlayerUpdate
 
-from app.security.auth import hash_password, get_current_user
+from app.security.auth import hash_password, get_current_user, verify_password
 
 router = APIRouter(prefix="/players", tags=["players"]) #creation route
 logger = logging.getLogger(__name__) # Récupère le logger configuré
@@ -90,6 +90,31 @@ def update_current_player(
     
     logger.info(f"Le joueur {current_user.username} a mis à jour son profil.")
     return current_user
+
+
+#Route pour changement de mot de passe
+@router.patch("/me/password")
+def update_password(
+    password_data: PasswordUpdate,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+        
+    # verif que joueur connaît mdp actuel
+    if not verify_password(password_data.old_password, current_user.hashed_password):
+        logger.warning(f"Tentative de changement de mot de passe échouée pour {current_user.username} (Mauvais ancien mot de passe).")
+        raise HTTPException(status_code=400, detail="L'ancien mot de passe est incorrect.")
+
+    #hache le nouveau mdp et maj de db
+    current_user.hashed_password = hash_password(password_data.new_password)
+    
+    session.add(current_user)
+    session.commit()
+    
+    logger.info(f"Le joueur {current_user.username} a modifié son mot de passe avec succès.")
+    
+    #front devra deco et reco l'utilisateur    
+    return {"message": "Mot de passe modifié avec succès. Veuillez vous reconnecter."}
+
 
 
 
