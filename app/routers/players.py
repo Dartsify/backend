@@ -111,7 +111,18 @@ def update_password(
     if not verify_password(password_data.old_password, current_user.hashed_password):
         logger.warning(f"Tentative de changement de mot de passe échouée pour {current_user.username} (Mauvais ancien mot de passe).")
         raise HTTPException(status_code=400, detail="L'ancien mot de passe est incorrect.")
-
+        # raise HTTPException(
+        #     status_code=400,
+        #     detail=[
+        #         {
+        #             "Field": "old_password",
+        #             "Value": password_update.old_password,
+        #             "Message": "L'ancien mot de passe est incorrect."
+        #         }
+        #     ]
+        # )
+    
+    
     #hache le nouveau mdp et maj de db
     current_user.hashed_password = hash_password(password_data.new_password)
     
