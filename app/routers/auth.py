@@ -22,9 +22,9 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = D
             status_code=401,
             detail=[
                 {
-                    "Field": "username",
-                    "Value": form_data.username,
-                    "Message": "Ce nom d'utilisateur n'existe pas."
+                    "field": "username",
+                    "value": form_data.username,
+                    "message": "Ce nom d'utilisateur n'existe pas."
                 }
             ]
         )
@@ -35,9 +35,9 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = D
             status_code=401,
             detail=[
                 {
-                    "Field": "password",
-                    "Value": form_data.password, # (en prod, évite de renvoyer le mdp en clair, mais pour le dev c'est ok)
-                    "Message": "Le mot de passe est incorrect."
+                    "field": "password",
+                    "value": form_data.password, # (en prod, évite de renvoyer le mdp en clair, mais pour le dev c'est ok)
+                    "message": "Le mot de passe est incorrect."
                 }
             ]
         )

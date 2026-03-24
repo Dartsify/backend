@@ -4,10 +4,11 @@ from sqlmodel import Session, select
 import logging
 
 from app.database import get_session
-from app.models.throw import Throw, ThrowCreate, ThrowRead
+from app.models.throw import Throw, ThrowCreate, ThrowRead, ManualThrowCreate
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player
+from app.security.auth import get_current_user
 
 from app.config import RASPBERRY_API_KEY #cle secrete pour lier raspberry
 
@@ -57,31 +58,22 @@ def verify_raspberry_pi(api_key: str = Security(api_key_header)):
 #-----------------------------------------------------------------------------------------------
 
 
-
-
-
-#enregistrer un lancer de flechette
-@router.post("/", response_model=ThrowRead) 
-def register_throw(
-    throw_in: ThrowCreate,
-    session: Session = Depends(get_session),
-    is_hardware_authorized: bool = Depends(verify_raspberry_pi)):
+# Fonction centrale du jeu : elle reçoit les infos d'un lancer, applique les règles du jeu 
+# (bust, victoire, changement de joueur/tour) et crée le lancer dans la DB avec toutes les infos calculées.
+def process_throw_logic(
+    session: Session, 
+    game: Game, 
+    joueur_actuel: str, 
+    tour_actuel: int, 
+    flechette_actuelle: int, 
+    points: int, 
+    multiplicateur: int, 
+    x_pos: float, 
+    y_pos: float
+) -> Throw:
     
-    # recup la partie
-    game = session.get(Game, throw_in.game_id)
-    if not game or game.status != GameStatus.in_progress:
-        raise HTTPException(status_code=400, detail="Partie introuvable ou terminée.")
-
-    # deduction de qui doit jouer
-    joueur_actuel = game.current_player_username
-    tour_actuel = game.current_turn_number
-    flechette_actuelle = game.current_dart_number
-
     participation = session.get(GameParticipation, {"game_id": game.id, "player_username": joueur_actuel})
 
-    # calcul des points
-    points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position)
-    
     # Règles du jeu et Bust
     is_bust = False
     is_victory = False
@@ -102,7 +94,21 @@ def register_throw(
         elif nouveau_score == 0 and multiplicateur == 2:
             is_victory = True
             participation.current_score = 0
+            participation.final_score = 0
+            participation.position = 1 
             game.status = GameStatus.finished
+            
+            #classement des perdants (pour mathias)
+            autres_joueurs = [p for p in game.participations if p.player_username != participation.player_username]
+            autres_joueurs.sort(key=lambda p: p.current_score)
+            
+            place_actuelle = 2
+            for perdant in autres_joueurs:
+                perdant.final_score = perdant.current_score
+                perdant.position = place_actuelle
+                session.add(perdant)
+                place_actuelle += 1
+                
         else:
             participation.current_score = nouveau_score
             
@@ -115,8 +121,8 @@ def register_throw(
         player_username=joueur_actuel,
         tour_number=tour_actuel,
         dart_number=flechette_actuelle,
-        x_position=throw_in.x_position,
-        y_position=throw_in.y_position,
+        x_position=x_pos,
+        y_position=y_pos,
         calculated_score=points,
         multiplier=multiplicateur
     )
@@ -138,6 +144,17 @@ def register_throw(
                 if game.mode == "perso":
                     #mode perso doit s'arrete
                     game.status = GameStatus.finished
+                    # récup tous les joueurs de la partie et trie les scores pour distribuer les places (1er, 2eme, 3eme...)
+                    tous_les_joueurs = game.participations
+                    tous_les_joueurs.sort(key=lambda p: p.current_score, reverse=True)
+                    
+                    place_actuelle = 1
+                    for joueur in tous_les_joueurs:
+                        joueur.final_score = joueur.current_score #  fige le score final
+                        joueur.position = place_actuelle          # attribue le classement
+                        session.add(joueur)
+                        place_actuelle += 1
+                        
                     logger.info("Fin de la partie Mode Perso ! Tout le monde a lancé ses 3 fléchettes.")
                 else:
                     # Pour le 501/301, on passe au tour suivant
@@ -163,9 +180,34 @@ def register_throw(
     return db_throw
 
 
+#Routes
+#enregistrer un lancer de flechette
+@router.post("/", response_model=ThrowRead) 
+def register_throw(
+    throw_in: ThrowCreate,
+    session: Session = Depends(get_session),
+    is_hardware_authorized: bool = Depends(verify_raspberry_pi)):
+    
+    # recup la partie
+    game = session.get(Game, throw_in.game_id)
+    if not game or game.status != GameStatus.in_progress:
+        raise HTTPException(status_code=400, detail="Partie introuvable ou terminée.")
 
-from app.security.auth import get_current_user
-from app.models.throw import ManualThrowCreate
+    # deduction de qui doit jouer
+    joueur_actuel = game.current_player_username
+    tour_actuel = game.current_turn_number
+    flechette_actuelle = game.current_dart_number
+
+    # calcul des points
+    points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position)
+    
+    # On délègue toute l'intelligence au moteur central !
+    return process_throw_logic(
+        session, game, joueur_actuel, tour_actuel, flechette_actuelle,
+        points, multiplicateur, throw_in.x_position, throw_in.y_position
+    )
+
+
 #route pour rentrer son score manuellement si defaillance technique
 @router.post("/manual", response_model=ThrowRead)
 def register_manual_throw(
@@ -187,78 +229,15 @@ def register_manual_throw(
     tour_actuel = game.current_turn_number
     flechette_actuelle = game.current_dart_number
 
-    participation = session.get(GameParticipation, {"game_id": game.id, "player_username": joueur_actuel})
-
     # utilise les points envoye par le téléphone
     points = throw_in.points
     multiplicateur = throw_in.multiplier
 
-    #rappel des regles du jeu
-    is_bust = False
-    is_victory = False
-
-    if game.mode in ["501", "301"]:
-        nouveau_score = participation.current_score - points
-        
-        if nouveau_score < 0 or nouveau_score == 1 or (nouveau_score == 0 and multiplicateur != 2):
-            is_bust = True
-            
-            previous_throws = session.exec(
-                select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)
-            ).all()
-            
-            points_a_annuler = sum(t.calculated_score for t in previous_throws)
-            participation.current_score += points_a_annuler            
-            
-        elif nouveau_score == 0 and multiplicateur == 2:
-            is_victory = True
-            participation.current_score = 0
-            game.status = GameStatus.finished
-        else:
-            participation.current_score = nouveau_score
-            
-    elif game.mode == "perso":
-        participation.current_score += points
-
-    # On crée le lancer "manuel" (on met X et Y à 0 pour indiquer que c'est manuel)
-    db_throw = Throw(
-        game_id=game.id,
-        player_username=joueur_actuel,
-        tour_number=tour_actuel,
-        dart_number=flechette_actuelle,
-        x_position=0.0,
-        y_position=0.0,
-        calculated_score=points,
-        multiplier=multiplicateur
+    # On délègue au moteur central (avec x et y à 0 pour indiquer que c'est manuel) !
+    db_throw = process_throw_logic(
+        session, game, joueur_actuel, tour_actuel, flechette_actuelle,
+        points, multiplicateur, 0.0, 0.0
     )
-    session.add(db_throw)
-
-    if not is_victory:
-        fin_de_tour = is_bust or (flechette_actuelle == 3)
-
-        if fin_de_tour:
-            participants_actifs = [p for p in game.participations if p.status == ValidationStatus.validated]
-            current_idx = next(i for i, p in enumerate(participants_actifs) if p.player_username == joueur_actuel)
-            next_idx = current_idx + 1
-            
-            if next_idx >= len(participants_actifs):
-                if game.mode == "perso":
-                    game.status = GameStatus.finished
-                else:
-                    next_idx = 0 
-                    game.current_turn_number += 1 
-                    game.current_player_username = participants_actifs[next_idx].player_username
-                    game.current_dart_number = 1
-            else:
-                game.current_player_username = participants_actifs[next_idx].player_username
-                game.current_dart_number = 1
-        else:
-            game.current_dart_number += 1
-
-    session.add(participation)
-    session.add(game)
-    session.commit()
-    session.refresh(db_throw)
-
+    
     logger.info(f"Lancer MANUEL enregistré par {current_user.username} : {points} points.")
     return db_throw
