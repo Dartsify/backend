@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 
 class Target(SQLModel, table=True):
     
-    qr_code: str = Field(primary_key=True)
+    id: str = Field(primary_key=True, min_length=6, max_length=6) #le QR code est la clé primaire, il doit faire exactement 6 caractères pour être valide
     name : str 
     location: str
     creation_date: datetime = Field(default_factory=datetime.utcnow)
@@ -18,13 +18,12 @@ class Target(SQLModel, table=True):
     
 #Modele pour creer nouvelle cible
 class TargetCreate(SQLModel):
-    qr_code: str
     name: str
-    location: str
+    location: str #l'admin qui cree une nouvelle cible ne choisi pas son id(l'api le fait tout seul), mais doit lui donner un nom et une localisation pour la différencier des autres cibles
     
 #Modele pour renvoyer infos de cible
 class TargetRead(SQLModel):
-    qr_code: str
+    id: str
     name: str
     location: str
     creation_date: datetime
@@ -33,5 +32,12 @@ class TargetRead(SQLModel):
 class TargetUpdate(SQLModel):
     name: Optional[str] = None
     location: Optional[str] = None
+    
+
+#Modele qui sert quand on scanne la cible pour voir si elle est libre
+class TargetStatusRead(TargetRead):
+    # is_occupied: bool
+    current_game_id: Optional[int] = None
+    current_game_status: Optional[str] = None
 
 

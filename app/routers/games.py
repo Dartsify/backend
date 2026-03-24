@@ -18,26 +18,48 @@ logger = logging.getLogger(__name__)
 
 
 
-#lancer une partie
+#lancer/creer une partie
 @router.post("/", response_model=GameRead)
-def start_game(
+def create_new_game(
     game_in: GameCreate,
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)): # Le joueur doit être connecté
-    logger.info(f"Le joueur {current_user.username} tente de lancer un {game_in.mode} sur la cible {game_in.target_qr_code}")
+    
+    logger.info(f"Le joueur {current_user.username} tente de lancer un {game_in.mode} sur la cible {game_in.target_id}")
 
     # Verif que cible scannée existe bien dans la DB
-    target = session.get(Target, game_in.target_qr_code)
+    target = session.get(Target, game_in.target_id)
     if not target:
         raise HTTPException(status_code=404, detail="Cible introuvable. Veuillez scanner un QR Code valide.")
+
+    # secu: On cherche s'il y a déjà une partie non terminée sur cette cible
+    active_game = session.exec(
+        select(Game)
+        .where(Game.target_id == game_in.target_id)
+        .where(Game.status != GameStatus.finished)).first() # On bloque si une partie est pas finished 
+
+    if active_game:
+        logger.warning(f"La cible {game_in.target_id} est déjà occupée par la partie {active_game.id}.")
+        # On renvoie l'erreur au format tableau pour le Front
+        raise HTTPException(
+            status_code=400, 
+            detail=[
+                {
+                    "field": "target_id", 
+                    "value": game_in.target_id, 
+                    "message": "Cette cible est déjà en cours d'utilisation par d'autres joueurs."
+                }
+            ]
+        )
 
     # Créer la nouvelle partie
     new_game = Game(
         mode=game_in.mode,
-        target_qr_code=game_in.target_qr_code,
-        status=GameStatus.in_progress,
+        target_id=game_in.target_id,
+        status=GameStatus.waiting, # On démarre en "waiting" pour que les joueurs puissent rejoindre avant de commencer
         current_player_username=current_user.username
     )
+    
     session.add(new_game)
     session.commit()
     session.refresh(new_game) # refresh pour que SQLite génère l'ID de la partie 
@@ -66,13 +88,15 @@ def start_game(
     return new_game
 
 
+
+
 #modèle Pydantic juste pour recevoir le pseudo de l'ami à inviter
 class PlayerInvite(BaseModel):
     username: str
     
 
 #route pour ajouter joueur (ami) a la partie
-@router.post("/{game_id}/add_player")
+@router.post("/{id}/add_player")
 def add_player_to_game(
     game_id: int,
     invite: PlayerInvite,
@@ -84,9 +108,10 @@ def add_player_to_game(
     if not game:
         raise HTTPException(status_code=404, detail="Partie introuvable.")
 
-    if game.status != GameStatus.in_progress:
-        raise HTTPException(status_code=400, detail="Impossible de rejoindre une partie terminée.")
+    if game.status != GameStatus.waiting:
+        raise HTTPException(status_code=400, detail="Impossible de rejoindre une partie terminée ou en cours.")
 
+    
 
     # verif si joueur qui invite fait bien partie de ce jeu (Seul l'hôte/un participant peut inviter d'autres)
     host_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
@@ -135,7 +160,7 @@ def add_player_to_game(
 
 
 # Route pour ACCEPTER (Valider) sa participation
-@router.post("/{game_id}/validate")
+@router.post("/{id}/validate")
 def validate_participation(
     game_id: int, 
     session: Session = Depends(get_session),
@@ -156,7 +181,7 @@ def validate_participation(
     return {"message": "Partie validée avec succès ! Les statistiques comptent désormais pour votre profil."}
 
 # Route pour REFUSER (Rejeter) sa participation
-@router.post("/{game_id}/reject")
+@router.post("/{id}/reject")
 def reject_participation(
     game_id: int, 
     session: Session = Depends(get_session),
@@ -184,7 +209,7 @@ def reject_participation(
 #on initialise donc la partie ici
 #Pour la modif des scores et le jeu il faut aller dans app.routers.throws)
 from app.models.game_participation import GameParticipationRead, GameReadWithParticipants
-@router.get("/{game_id}", response_model=GameReadWithParticipants)
+@router.get("/{id}", response_model=GameReadWithParticipants)
 def get_game_state(
     game_id: int,
     session: Session = Depends(get_session),
@@ -253,3 +278,42 @@ def get_all_games(
             .offset(offset)
             .limit(limit)).all()
         return games
+    
+    
+#route pour lancer la partie qui a ete cree et qui est en mode waiting (l'hote clique sur "commencer la partie" quand tout le monde est la)
+@router.post("/{id}/start", response_model=GameRead)
+def launch_game(
+    game_id: int,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # récupère la partie
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    # Sécu: Est-ce que c'est bien l'HÔTE qui essaie de démarrer ?
+    # (L'hôte est le joueur actuel tant que le tour 1 n'a pas commencé)
+    if game.current_player_username != current_user.username:
+        raise HTTPException(
+            status_code=403, 
+            detail="Seul l'hôte (créateur de la partie) peut lancer le jeu."
+        )
+
+    # dans la salle d'attente ?
+    if game.status != GameStatus.waiting:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cette partie a déjà commencé ou est déjà terminée."
+        )
+
+    #Go
+    game.status = GameStatus.in_progress
+    
+    session.add(game)
+    session.commit()
+    session.refresh(game)
+
+    logger.info(f"La partie {game.id} passe en IN_PROGRESS ! Que le meilleur gagne.")
+    
+    return game

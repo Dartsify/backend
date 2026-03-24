@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 class GameStatus(str, Enum):#version plus propre pour determine le statut de la partie
     in_progress = "in_progress"
     finished = "finished"
+    waiting = "waiting" #en attente de joueurs, pas encore commencée (salle d'attente, lobby)
     
 
 class Game(SQLModel, table=True):
@@ -21,7 +22,7 @@ class Game(SQLModel, table=True):
     status: GameStatus = Field(default=GameStatus.in_progress) #par defaut on dira que la partie est en train d'etre jouee
     
     #cle etrangere vers cible
-    target_qr_code: str = Field(foreign_key="target.qr_code") #cle etrangere venant de la table target
+    target_id: str = Field(foreign_key="target.id") #cle etrangere venant de la table target
     
     #gestion des tours (en live)
     current_player_username: Optional[str] = None
@@ -43,7 +44,7 @@ class GameModeAllowed(str, Enum):
 
 # ce que tel du joueur envoie quand il scanne la cible et choisit le mode
 class GameCreate(SQLModel):
-    target_qr_code: str
+    target_id: str
     mode: GameModeAllowed = GameModeAllowed.mode_501 #pour dire que par défaut on lance un 501
     
 #ce que APi renvoie quand partie créé
@@ -52,7 +53,7 @@ class GameRead(SQLModel):
     mode: str
     start_date: datetime
     status: GameStatus
-    target_qr_code: str
+    target_id: str
     
 
     
