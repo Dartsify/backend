@@ -94,8 +94,7 @@ def register_throw(
             
             # Annulation des points
             previous_throws = session.exec(
-                select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)
-            ).all()
+                select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)).all()
             
             points_a_annuler = sum(t.calculated_score for t in previous_throws)
             participation.current_score += points_a_annuler            

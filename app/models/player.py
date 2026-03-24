@@ -76,7 +76,7 @@ class PlayerRead(SQLModel):
 class PlayerUpdate(SQLModel):
     email: Optional[EmailStr] = None
     name: Optional[str] = None
-    age: Optional[int] = None
+    age: Optional[int] =  Field(default=None, gt=0)
     
 #modele public(pour un classement par ex)
 class PlayerPublic(SQLModel):
