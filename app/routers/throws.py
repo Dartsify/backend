@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Security
 from fastapi.security.api_key import APIKeyHeader 
 from sqlmodel import Session, select
 import logging
+from datetime import datetime
 
 from app.database import get_session
 from app.models.throw import Throw, ThrowCreate, ThrowRead, ManualThrowCreate
@@ -172,6 +173,9 @@ def process_throw_logic(
             # passe juste à la fléchette suivante
             game.current_dart_number += 1
 
+    #reinitialise le compteur d'inactivire à chaque lancer
+    game.last_interaction = datetime.utcnow()
+    
     session.add(participation)
     session.add(game)
     session.commit()

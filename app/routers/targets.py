@@ -2,6 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 import logging
+from datetime import datetime, timedelta
 
 from app.database import get_session
 from app.models.target import TargetUpdate, Target, TargetCreate, TargetRead, TargetStatusRead
@@ -90,6 +91,23 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
         .where(Game.target_id == target_id)
         .where(Game.status.in_([GameStatus.waiting, GameStatus.in_progress]))).first() 
 
+    #controle d'inactivite 
+    if active_game:
+        # On calcule le temps écoulé depuis la dernière interaction
+        time_elapsed = datetime.utcnow() - active_game.last_interaction
+        
+        # Si ça fait plus de 20 minutes (1200 secondes)
+        if time_elapsed > timedelta(minutes=20):
+            logger.info(f"La partie {active_game.id} a expiré (inactivité). Clôture automatique.")
+            active_game.status = GameStatus.finished # On force la fin de la partie
+            session.add(active_game)
+            session.commit()
+            
+            # Comme on vient de la fermer, on supprime active_game pour que la suite
+            # du code considère la cible comme LIBRE !
+            active_game = None
+    
+    
     # prépare la réponse pour le Front
     if active_game:
         # Scénario A : La cible est OCCUPÉE (salle d'attente ou en train de jouer)

@@ -29,6 +29,9 @@ class Game(SQLModel, table=True):
     current_turn_number: int = Field(default=1)
     current_dart_number: int = Field(default=1)
     
+    #chrono d'inactivite
+    last_interaction: datetime = Field(default_factory=datetime.utcnow)
+    
     # relation optionnelle pour SQLAlchemy / ORM
     target: Optional["Target"] = Relationship(back_populates="games")
     participations: List["GameParticipation"] = Relationship(back_populates="game")

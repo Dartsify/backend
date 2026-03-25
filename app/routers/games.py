@@ -8,6 +8,7 @@ from app.models.target import Target
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player, Friendship
 from app.security.auth import get_current_user
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -162,6 +163,10 @@ def add_player_to_game(
         current_score=starting_score,
         status=ValidationStatus.pending
     )
+    
+    #chrono reboot
+    game.last_interaction = datetime.utcnow()
+    session.add(game)
     
     session.add(new_participation)
     session.commit()
@@ -329,6 +334,9 @@ def launch_game(
     #Go
     game.status = GameStatus.in_progress
     
+    #chrono reinitialise
+    game.last_interaction = datetime.utcnow()
+    
     session.add(game)
     session.commit()
     session.refresh(game)
@@ -346,7 +354,7 @@ class GuestJoin(BaseModel):
 
 # route pour rejoindre la partie sans compte (en tant qu'invité) en scannant le qrcode
 @router.post("/{game_id}/join_guest")
-def join_game_as_guest(
+def join_game(
     game_id: int, 
     guest_in: GuestJoin, 
     session: Session = Depends(get_session)):
@@ -390,6 +398,8 @@ def join_game_as_guest(
     )
     
     session.add(new_participation)
+    game.last_interaction = datetime.utcnow()
+    session.add(game)#pour le chrono 
     session.commit() # sauvegarde l'invité ET sa participation d'un seul coup 
 
     logger.info(f"L'invité {guest_in.name} ({guest_username}) a rejoint la partie {game.id}.")
@@ -400,3 +410,57 @@ def join_game_as_guest(
         "username": guest_username,
         "starting_score": starting_score
     }
+    
+    
+
+#route pour supp un joueur dans le lobby de la partie (seulement en wwaiting et seul l'hote peut le faire)
+@router.delete("/{game_id}/participants/{username_to_remove}")
+def kick_player_from_game(
+    game_id: int,
+    username_to_remove: str,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # cherche partie
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    # verif si waiting
+    if game.status != GameStatus.waiting:
+        raise HTTPException(
+            status_code=400, 
+            detail="Impossible d'expulser un joueur : la partie a déjà commencé ou est terminée."
+        )
+
+    # seul l'hote peut le faire
+    if game.current_player_username != current_user.username:
+        raise HTTPException(
+            status_code=403, 
+            detail="Seul le créateur de la partie (l'hôte) peut expulser des joueurs."
+        )
+
+    if username_to_remove == current_user.username:
+        raise HTTPException(
+            status_code=400, 
+            detail="Vous ne pouvez pas vous expulser vous-même de votre propre partie !"
+        )
+
+    #verif si le joueur a supp est bien dans  la game
+    participation = session.exec(
+        select(GameParticipation)
+        .where(GameParticipation.game_id == game_id)
+        .where(GameParticipation.player_username == username_to_remove)).first()
+
+    if not participation:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Le joueur {username_to_remove} n'est pas dans la salle d'attente."
+        )
+
+    session.delete(participation)
+    session.commit()
+
+    logger.info(f"Le joueur {username_to_remove} a été expulsé de la partie {game_id} par l'hôte {current_user.username}.")
+    
+    return {"message": f"Le joueur a été expulsé avec succès de la partie."}
