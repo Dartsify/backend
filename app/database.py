@@ -46,3 +46,50 @@ def create_initial_admin():
             )
             session.add(new_admin)
             session.commit()
+
+from app.models.target import Target
+from app.models.player import Player
+from app.security.auth import hash_password
+
+#creation de données de test pour le développement (cibles et joueurs)
+def seed_test_data():
+    
+    with Session(engine) as session:
+
+        # cibles
+        cibles_test = [
+            {"id": "000001", "name": "Cible Test 1", "location": "Bar Salle 1"},
+            {"id": "000002", "name": "Cible Test 2", "location": "Bar Salle 2"}
+        ]
+
+        for cible_data in cibles_test:
+            # On vérifie si la cible existe déjà pour éviter que ça plante si on n'a pas supprimé la DB
+            if not session.get(Target, cible_data["id"]):
+                new_target = Target(
+                    id=cible_data["id"],
+                    name=cible_data["name"],
+                    location=cible_data["location"]
+                )
+                session.add(new_target)
+
+        # joueurs
+        # On leur met un mot de passe facile et connu pour que Mathias puisse se connecter
+        mot_de_passe_test = hash_password("Test123") 
+
+        joueurs_test = [
+            {"username": "math", "email": "mathias@test.com", "name": "Mathias"},
+            {"username": "adri", "email": "adri@test.com", "name": "Adrien"},
+            {"username": "alex", "email": "alex@test.com", "name": "Alexandre"}
+        ]
+
+        for joueur_data in joueurs_test:
+            if not session.get(Player, joueur_data["username"]):
+                new_player = Player(
+                    username=joueur_data["username"],
+                    email=joueur_data["email"],
+                    name=joueur_data["name"],
+                    hashed_password=mot_de_passe_test
+                )
+                session.add(new_player)
+
+        session.commit()

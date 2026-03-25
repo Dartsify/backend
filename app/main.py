@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.database import create_db_and_tables, create_initial_admin
+from app.database import create_db_and_tables, create_initial_admin, seed_test_data
 from app.routers.players import router as players_router
 from app.routers.auth import router as auth_router
 from app.routers.targets import router as targets_router
@@ -44,7 +44,8 @@ def on_startup():
     logger.info("Base de données et tables prêtes.")
     create_initial_admin()
     logger.info("L'admin a bien été créé au démarrage ")
-
+    seed_test_data()
+    logger.info("Données de test ajoutées à la base de données.")
 
 #    Transforme les erreurs complexes de Pydantic en un tableau simple et lisible pour le Front-end.
 @app.exception_handler(RequestValidationError)
