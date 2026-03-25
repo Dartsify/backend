@@ -250,8 +250,8 @@ def get_my_stats(
         throws = session.exec(
             select(Throw)
             .where(Throw.player_username == current_user.username)
-            .where(Throw.game_id.in_(validated_game_ids)) # filtre par liste d'ID 
-        ).all()
+            .where(Throw.game_id.in_(validated_game_ids))).all() # filtre par liste d'ID 
+        
 
         total_throws = len(throws)
         
@@ -267,3 +267,81 @@ def get_my_stats(
         average_points_per_dart=round(average_ppd, 2),
         total_darts_thrown=total_throws
     )
+    
+from typing import Optional
+from app.models.player import Friendship
+#route pour filtrer ses amis (basé sur les lettres dans le pseudo) -> protégé (c'est pour son profil perso)
+@router.get("/me/friends", response_model=List[PlayerPublic]) 
+def get_my_friends(
+    search: Optional[str] = Query(None, description="Taper quelques lettres pour chercher un ami"),
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # chercher toutes les relations d'amitié qui impliquent le joueur actuel
+
+    statement = select(Friendship).where(
+        (Friendship.user_username == current_user.username) | #soit il est user_username soit friend_username
+        (Friendship.friend_username == current_user.username)
+    )
+    
+    friendships = session.exec(statement).all()
+
+    # extrait juste les pseudos des amis dans une liste
+    friend_usernames = []
+    for f in friendships:
+        if f.user_username == current_user.username:
+            friend_usernames.append(f.friend_username)
+        else:
+            friend_usernames.append(f.user_username)
+
+    if not friend_usernames:
+        return [] # pas d'amis
+
+    #récup les vrais profils des amis depuis la table Player
+    query = select(Player).where(Player.username.in_(friend_usernames))
+
+
+    if search:
+        # Si le front envoie "?search=ad", on cherche "%ad%" (ce qui contient "ad")
+        query = query.where(Player.username.ilike(f"%{search}%"))
+
+    friends = session.exec(query).all()
+    
+    return friends
+
+
+#route pour ajouter un ami -> protégé (c'est pour son profil perso)
+@router.post("/me/friends/{friend_username}")
+def add_friend(
+    friend_username: str,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)
+):
+    # peut pas s'ajouter soi-même 
+    if current_user.username == friend_username:
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous ajouter vous-même en ami !")
+
+    # verif si le futur ami existe bien dans la db
+    friend = session.get(Player, friend_username)
+    if not friend:
+        raise HTTPException(status_code=404, detail=f"Le joueur '{friend_username}' n'existe pas.")
+
+    # verif si deja ami
+    existing_friendship = session.exec(
+        select(Friendship).where(
+            ((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend_username)) |
+            ((Friendship.user_username == friend_username) & (Friendship.friend_username == current_user.username)))).first()
+
+    if existing_friendship:
+        raise HTTPException(status_code=400, detail=f"Vous êtes déjà ami avec {friend_username} !")
+
+    
+    new_friendship = Friendship(
+        user_username=current_user.username,
+        friend_username=friend_username
+    )
+    
+    session.add(new_friendship)
+    session.commit()
+    
+    return {"message": f"Vous êtes maintenant ami avec {friend_username} !"}

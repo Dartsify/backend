@@ -41,7 +41,17 @@ class Player(SQLModel, table=True):
 #                         -index
 #                         -contrainte
 
-#Le | signifie que age peut etre un entier ou vide (None)    
+#Le | signifie que age peut etre un entier ou vide (None) 
+
+
+#table pour liste d'amis
+class Friendship(SQLModel, table=True):
+    # Clés primaires composées : l'amitié est unique entre ces deux personnes
+    user_username: str = Field(foreign_key="player.username", primary_key=True)
+    friend_username: str = Field(foreign_key="player.username", primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    
 
 class PlayerCreate(SQLModel):
     username: str

@@ -6,7 +6,7 @@ from app.database import get_session
 from app.models.game import Game, GameCreate, GameRead, GameStatus
 from app.models.target import Target
 from app.models.game_participation import GameParticipation, ValidationStatus
-from app.models.player import Player
+from app.models.player import Player, Friendship
 from app.security.auth import get_current_user
 
 from pydantic import BaseModel
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 
-#lancer/creer une partie
+#creer une partie
 @router.post("/", response_model=GameRead)
 def create_new_game(
     game_in: GameCreate,
@@ -123,6 +123,20 @@ def add_player_to_game(
     if not friend:
         raise HTTPException(status_code=404, detail=f"Le joueur '{invite.username}' n'existe pas. Dites lui de se créer un compte !")
 
+    
+    #vérifie si une ligne existe dans la table Friendship entre les deux joueurs
+    is_friend = session.exec(
+        select(Friendship).where(
+            ((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend.username)) |
+            ((Friendship.user_username == friend.username) & (Friendship.friend_username == current_user.username)))).first()
+
+    if not is_friend:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Vous ne pouvez pas inviter {friend.username} car il/elle n'est pas dans votre liste d'amis !"
+        )
+    
+    
     # Verif que l'ami n'est pas DÉJÀ dans la partie
     existing_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": invite.username})
     if existing_participation:
