@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from app.models.throw import Throw
     
 class ValidationStatus(str, Enum):
-    pending ="pending" #stand by, partie a ete jouee et en attente de validation
+    pending = "pending" #stand by, partie a ete jouee et en attente de validation
     validated ="validated" #stats sont comptabilisees pour joueur
     rejected = "rejected" #pas lui donc on compte pas les stats
      
@@ -33,7 +33,9 @@ class GameParticipation(SQLModel, table=True):
     
 #Renvoyer pour chaque joueur de la partie
 class GameParticipationRead(SQLModel):
+    game_id: int
     player_username: str
+    player_name: Optional[str] = None
     current_score: int
     position: Optional[int] = None
     status: ValidationStatus

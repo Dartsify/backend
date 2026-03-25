@@ -66,3 +66,24 @@ def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Dep
         raise credentials_exception
   
     return player
+
+
+from typing import Optional
+# schéma "tolérant" (auto_error=False) : il ne jette pas d'erreur 401 si le token est absent.
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False) 
+
+# fonction qui va servir pour les routes où le token est optionnel (ex: rejoindre une partie en tant qu'invité)
+def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    session: Session = Depends(get_session)
+):
+    # S'il n'y a pas de token envoyé par le téléphone, c'est un invité 
+    if not token:
+        return None 
+        
+    # S'il y a un token, on essaie de l'identifier avec vraie fonction
+    try:
+        return get_current_user(token=token, session=session) 
+    except Exception:
+        # Si le token est invalide ou expiré, on le traite comme un invité
+        return None

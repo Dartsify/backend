@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 import logging
-from typing import List
+from typing import List, Optional
 from app.database import get_session
 from app.models.game import Game, GameCreate, GameRead, GameStatus
 from app.models.target import Target
@@ -99,7 +99,7 @@ class PlayerInvite(BaseModel):
 from app.models.player import FriendshipStatus
 
 #route pour ajouter joueur (ami) a la partie
-@router.post("/{id}/add_player")
+@router.post("/{game_id}/add_player")
 def add_player_to_game(
     game_id: int,
     invite: PlayerInvite,
@@ -184,7 +184,7 @@ def add_player_to_game(
 
 
 # Route pour ACCEPTER (Valider) sa participation
-@router.post("/{id}/validate")
+@router.post("/{game_id}/validate")
 def validate_participation(
     game_id: int, 
     session: Session = Depends(get_session),
@@ -205,7 +205,7 @@ def validate_participation(
     return {"message": "Partie validée avec succès ! Les statistiques comptent désormais pour votre profil."}
 
 # Route pour REFUSER (Rejeter) sa participation
-@router.post("/{id}/reject")
+@router.post("/{game_id}/reject")
 def reject_participation(
     game_id: int, 
     session: Session = Depends(get_session),
@@ -233,7 +233,7 @@ def reject_participation(
 #on initialise donc la partie ici
 #Pour la modif des scores et le jeu il faut aller dans app.routers.throws)
 from app.models.game_participation import GameParticipationRead, GameReadWithParticipants
-@router.get("/{id}", response_model=GameReadWithParticipants)
+@router.get("/{game_id}", response_model=GameReadWithParticipants)
 def get_game_state(
     game_id: int,
     session: Session = Depends(get_session),
@@ -259,6 +259,13 @@ def get_game_state(
         #transforme la ligne du participant en dictionnaire
         p_dict = p.model_dump()
         
+        # Grâce à la relation Relationship, SQLModel va chercher le profil du joueur
+        if p.player:
+            p_dict["player_name"] = p.player.name #affiche le nom du joueur pour le front
+        else:
+            p_dict["player_name"] = "Joueur inconnu"
+            
+        
         # ajout de suggestion calculée
         if game.mode in ["501", "301"]:
             p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score)
@@ -274,38 +281,42 @@ def get_game_state(
     return game_dict
 
 
+from fastapi import Query
 #Route pour lister toutes les parties (historique de ses propres parties en tant que joueur)
 # et si admin il a les parties de tout le monde
 @router.get("/", response_model=List[GameRead])
 def get_all_games(
     limit: int = 50,
     offset: int = 0,
+    status: Optional[GameStatus] = Query(None, description="Filtrer par statut (waiting, in_progress, finished)"),
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
+    # base de la requête selon le rôle (Admin ou Joueur)
     if current_user.is_admin:
-        # L'admin voit tout (avec un tri par date décroissante pour avoir les plus récentes d'abord)
-        games = session.exec(
-            select(Game)
-            .order_by(Game.start_date.desc())
-            .offset(offset)
-            .limit(limit)).all()
-        return games
+        # L'admin a accès à TOUTES les parties
+        query = select(Game).order_by(Game.start_date.desc())
     else:
-        # Le joueur normal ne voit que les parties auxquelles il a participé
-        #(JOIN entre la table Game et GameParticipation)
-        games = session.exec(
+        # Le joueur ne voit que SES parties (jointure)
+        query = (
             select(Game)
             .join(GameParticipation)
             .where(GameParticipation.player_username == current_user.username)
             .order_by(Game.start_date.desc())
-            .offset(offset)
-            .limit(limit)).all()
-        return games
+        )
+        
+    #applique le filtre de statut SI le front en a envoyé un
+    if status:
+        query = query.where(Game.status == status)
+        
+    query = query.offset(offset).limit(limit)
+    games = session.exec(query).all()
+    
+    return games
     
     
 #route pour lancer la partie qui a ete cree et qui est en mode waiting (l'hote clique sur "commencer la partie" quand tout le monde est la)
-@router.post("/{id}/start", response_model=GameRead)
+@router.post("/{game_id}/start", response_model=GameRead)
 def launch_game(
     game_id: int,
     session: Session = Depends(get_session),
@@ -348,66 +359,79 @@ def launch_game(
 
 from pydantic import BaseModel
 import random
-# modèle pour recevoir le prénom tapé par l'invité
-class GuestJoin(BaseModel):
-    name: str
+from typing import Optional
+from app.security.auth import get_current_user_optional
 
-# route pour rejoindre la partie sans compte (en tant qu'invité) en scannant le qrcode
-@router.post("/{game_id}/join_guest")
+#modèle d'entrée : le prénom n'est requis que pour les invités
+class JoinGameRequest(BaseModel):
+    name: Optional[str] = None 
+
+#route pour rejoindre la partie en tant que joueur (en scannant le QR code de la cible)(in,vite ou non)
+@router.post("/{game_id}/join")
 def join_game(
     game_id: int, 
-    guest_in: GuestJoin, 
-    session: Session = Depends(get_session)):
+    join_in: JoinGameRequest, 
+    session: Session = Depends(get_session),
+    current_user: Optional[Player] = Depends(get_current_user_optional)):
     
-    # verif si partie en waiting
+    # Vérif de la salle d'attente
     game = session.get(Game, game_id)
-    if not game:
-        raise HTTPException(status_code=404, detail="Partie introuvable.")
+    if not game or game.status != GameStatus.waiting:
+        raise HTTPException(status_code=400, detail="Partie introuvable ou a déjà commencé.")
+
+    #scenario A : le joueur est connecte a son compte
+    if current_user:
+        # Sécu : Vérifie s'il n'est pas DÉJÀ dans la partie
+        existing_p = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
+        if existing_p:
+            return {"message": "Vous êtes déjà dans la salle d'attente !"}
         
-    if game.status != GameStatus.waiting:
-        raise HTTPException(status_code=400, detail="Trop tard, la partie a déjà commencé ou est terminée.")
+        username_to_add = current_user.username
+        display_name = current_user.username
+        status_to_add = ValidationStatus.validated # On valide direct
 
-    # creer le compte invite avec un pseudo unique du style "guest_12345"
-    while True:
-        random_suffix = random.randint(10000, 99999)
-        guest_username = f"guest_{random_suffix}"
-        if not session.get(Player, guest_username):
-            break
+    # Scenario B : Pas connecte -> invité
+    else:
+        if not join_in.name:
+            raise HTTPException(status_code=400, detail="Veuillez fournir un prénom pour rejoindre en tant qu'invité.")
+        
+        # Création du profil fantôme
+        while True:
+            random_suffix = random.randint(10000, 99999)
+            guest_username = f"guest_{random_suffix}"
+            if not session.get(Player, guest_username):
+                break
 
-    db_guest = Player(
-        username=guest_username,
-        name=guest_in.name,
-        is_guest=True 
-    )
-    session.add(db_guest)
+        db_guest = Player(username=guest_username, name=join_in.name, is_guest=True)
+        session.add(db_guest)
+        
+        username_to_add = guest_username
+        display_name = join_in.name
+        status_to_add = ValidationStatus.validated
 
-    # 3. Calculer le score de départ selon le mode de jeu
-    if game.mode == "501":
-        starting_score = 501
-    elif game.mode == "301":
-        starting_score = 301
-    else: 
-        starting_score = 0
+    #on associe le joueur (invite ou non) à la partie avec le score de départ en fonction du mode de jeu
+    starting_score = 501 if game.mode == "501" else (301 if game.mode == "301" else 0)
 
-    # mettre l'invite dans la partie
     new_participation = GameParticipation(
         game_id=game.id,
-        player_username=guest_username,
+        player_username=username_to_add,
         current_score=starting_score,
-        status=ValidationStatus.validated # on valide direct pour les invités (pas de stats, pas de compte, pas de pression)
+        status=status_to_add
     )
-    
     session.add(new_participation)
-    game.last_interaction = datetime.utcnow()
-    session.add(game)#pour le chrono 
-    session.commit() # sauvegarde l'invité ET sa participation d'un seul coup 
 
-    logger.info(f"L'invité {guest_in.name} ({guest_username}) a rejoint la partie {game.id}.")
+    # chrono d'inactivité
+    game.last_interaction = datetime.utcnow()
+    session.add(game)
+    
+    session.commit()
+
+    logger.info(f"{display_name} a rejoint la partie {game.id}.")
     
     return {
-        "message": f"Bienvenue {guest_in.name}, vous avez rejoint la partie !",
+        "message": f"Bienvenue {display_name}, vous avez rejoint la partie !",
         "game_id": game.id,
-        "username": guest_username,
+        "username": username_to_add,
         "starting_score": starting_score
     }
     
@@ -464,3 +488,61 @@ def kick_player_from_game(
     logger.info(f"Le joueur {username_to_remove} a été expulsé de la partie {game_id} par l'hôte {current_user.username}.")
     
     return {"message": f"Le joueur a été expulsé avec succès de la partie."}
+
+
+#modele pour changer le mode si indecis avant de start la partie
+class GameModeUpdate(BaseModel):
+    mode: str # "501", "301", ou "perso"
+
+#fonction pour changer le mode de la partie avant lancement
+@router.patch("/{game_id}/mode")
+def change_game_mode(
+    game_id: int,
+    mode_update: GameModeUpdate,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    # Uniquement dans la salle d'attente
+    if game.status != GameStatus.waiting:
+        raise HTTPException(
+            status_code=400, 
+            detail="Impossible de changer de mode : la partie a déjà commencé ou est terminée."
+        )
+
+    # Seul l'hôte peut décider de changer le mode
+    if game.current_player_username != current_user.username:
+        raise HTTPException(
+            status_code=403, 
+            detail="Seul le créateur de la partie (l'hôte) peut changer le mode de jeu."
+        )
+
+    game.mode = mode_update.mode
+
+    if game.mode == "501":
+        new_starting_score = 501
+    elif game.mode == "301":
+        new_starting_score = 301
+    else:
+        new_starting_score = 0
+
+    # maj des scores de tout le monde
+    for participation in game.participations:
+        participation.current_score = new_starting_score
+        session.add(participation)
+
+    
+    game.last_interaction = datetime.utcnow()
+    session.add(game)
+    session.commit()
+
+    logger.info(f"L'hôte {current_user.username} a changé le mode de la partie {game.id} en {game.mode}.")
+
+    return {
+        "message": f"Le mode de jeu a été changé en {game.mode}.",
+        "new_mode": game.mode,
+        "new_starting_score": new_starting_score
+    }

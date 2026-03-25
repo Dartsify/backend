@@ -24,11 +24,11 @@ if TYPE_CHECKING:
 class Player(SQLModel, table=True):
 
     username: str = Field(primary_key=True, index = True) #vu qeu cle primaire, pas le choix d'avoir une valeur (ne peut pas etre none)
-    email: str = Field(unique=True)
+    email: Optional[str] = Field(default=None, unique=True)
     name: str
     age: Optional[int] = None
     #mdp hashé
-    hashed_password: str
+    hashed_password: Optional[str]= Field(default=None)
     creation_date: datetime = Field(default_factory=datetime.utcnow)#Date crée auto quand utilisateur est ajouté
     
     is_admin: bool = Field(default=False)
