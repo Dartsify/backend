@@ -434,3 +434,46 @@ def get_friend_requests(
     requesters = session.exec(select(Player).where(Player.username.in_(requester_usernames))).all()
 
     return requesters
+
+
+
+
+# import random
+# from pydantic import BaseModel
+
+# # Le modèle que le Front envoie (juste le prénom tapé sur l'écran pour l'invité qui n'a pas de compte)
+# class GuestCreate(BaseModel):
+#     name: str 
+
+# #route pour créer un compte invité (sans email ni mot de passe) -> pas besoin de token, n'importe qui devant la borne peut le faire
+# @router.post("/guest", response_model=PlayerPublic)
+# def create_guest_account(
+#     guest_in: GuestCreate, 
+#     session: Session = Depends(get_session)):
+    
+#     # Générer un username unique pour cet invité
+#     while True:
+#         random_suffix = random.randint(10000, 99999)
+#         guest_username = f"guest_{random_suffix}"
+        
+#         #verif si pseudo déjà pris
+#         existing_user = session.get(Player, guest_username)
+#         if not existing_user:
+#             break
+
+#     # creer le compte fantôme da,ns db
+#     db_guest = Player(
+#         username=guest_username,
+#         name=guest_in.name,
+#         is_guest=True, 
+#         email=None,
+#         hashed_password=None
+#     )
+    
+#     session.add(db_guest)
+#     session.commit()
+#     session.refresh(db_guest)
+    
+#     logger.info(f"Compte invité créé : {guest_username} ({guest_in.name})")
+    
+#     return db_guest

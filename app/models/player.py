@@ -33,6 +33,9 @@ class Player(SQLModel, table=True):
     
     is_admin: bool = Field(default=False)
     
+    #le drapeau pour dire que c'est un invite
+    is_guest: bool = Field(default=False)
+    
     participations: List["GameParticipation"] = Relationship(back_populates="player")
     throws: List["Throw"] = Relationship(back_populates="player") #back_populates : C'est ce qui indique à SQLModel de faire le lien dans les deux sens de manière automatique
     
@@ -42,10 +45,6 @@ class Player(SQLModel, table=True):
 #                         -contrainte
 
 #Le | signifie que age peut etre un entier ou vide (None) 
-
-
-
-    
     
 
 class PlayerCreate(SQLModel):

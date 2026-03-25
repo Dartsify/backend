@@ -336,3 +336,67 @@ def launch_game(
     logger.info(f"La partie {game.id} passe en IN_PROGRESS ! Que le meilleur gagne.")
     
     return game
+
+
+from pydantic import BaseModel
+import random
+# modèle pour recevoir le prénom tapé par l'invité
+class GuestJoin(BaseModel):
+    name: str
+
+# route pour rejoindre la partie sans compte (en tant qu'invité) en scannant le qrcode
+@router.post("/{game_id}/join_guest")
+def join_game_as_guest(
+    game_id: int, 
+    guest_in: GuestJoin, 
+    session: Session = Depends(get_session)):
+    
+    # verif si partie en waiting
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+        
+    if game.status != GameStatus.waiting:
+        raise HTTPException(status_code=400, detail="Trop tard, la partie a déjà commencé ou est terminée.")
+
+    # creer le compte invite avec un pseudo unique du style "guest_12345"
+    while True:
+        random_suffix = random.randint(10000, 99999)
+        guest_username = f"guest_{random_suffix}"
+        if not session.get(Player, guest_username):
+            break
+
+    db_guest = Player(
+        username=guest_username,
+        name=guest_in.name,
+        is_guest=True 
+    )
+    session.add(db_guest)
+
+    # 3. Calculer le score de départ selon le mode de jeu
+    if game.mode == "501":
+        starting_score = 501
+    elif game.mode == "301":
+        starting_score = 301
+    else: 
+        starting_score = 0
+
+    # mettre l'invite dans la partie
+    new_participation = GameParticipation(
+        game_id=game.id,
+        player_username=guest_username,
+        current_score=starting_score,
+        status=ValidationStatus.validated # on valide direct pour les invités (pas de stats, pas de compte, pas de pression)
+    )
+    
+    session.add(new_participation)
+    session.commit() # sauvegarde l'invité ET sa participation d'un seul coup 
+
+    logger.info(f"L'invité {guest_in.name} ({guest_username}) a rejoint la partie {game.id}.")
+    
+    return {
+        "message": f"Bienvenue {guest_in.name}, vous avez rejoint la partie !",
+        "game_id": game.id,
+        "username": guest_username,
+        "starting_score": starting_score
+    }
