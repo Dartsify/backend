@@ -95,6 +95,8 @@ class PlayerInvite(BaseModel):
     username: str
     
 
+from app.models.player import FriendshipStatus
+
 #route pour ajouter joueur (ami) a la partie
 @router.post("/{id}/add_player")
 def add_player_to_game(
@@ -127,9 +129,12 @@ def add_player_to_game(
     #vérifie si une ligne existe dans la table Friendship entre les deux joueurs
     is_friend = session.exec(
         select(Friendship).where(
-            ((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend.username)) |
-            ((Friendship.user_username == friend.username) & (Friendship.friend_username == current_user.username)))).first()
-
+            (((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend.username)) |
+            ((Friendship.user_username == friend.username) & (Friendship.friend_username == current_user.username))) &
+            (Friendship.status == FriendshipStatus.accepted) 
+        )
+    ).first()
+    
     if not is_friend:
         raise HTTPException(
             status_code=403, 

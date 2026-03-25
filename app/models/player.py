@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, Field, Relationship
 from pydantic import EmailStr, field_validator
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
-from pydantic_core import PydanticCustomError
+from enum import Enum
 
 if TYPE_CHECKING:
     # On importe les autres tables uniquement "virtuellement" pour éviter l'import circulaire
@@ -44,12 +44,7 @@ class Player(SQLModel, table=True):
 #Le | signifie que age peut etre un entier ou vide (None) 
 
 
-#table pour liste d'amis
-class Friendship(SQLModel, table=True):
-    # Clés primaires composées : l'amitié est unique entre ces deux personnes
-    user_username: str = Field(foreign_key="player.username", primary_key=True)
-    friend_username: str = Field(foreign_key="player.username", primary_key=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+
     
     
 
@@ -119,3 +114,24 @@ class PasswordUpdate(BaseModel):
         if not any(char.isupper() for char in value):
             raise ValueError("Le nouveau mot de passe doit contenir au moins une majuscule.")
         return value
+    
+    
+    
+# Les statuts possibles
+class FriendshipStatus(str, Enum):
+    pending = "pending"   # Demande envoyée
+    accepted = "accepted" 
+    rejected = "rejected"  
+    
+      
+#table pour liste d'amis
+class Friendship(SQLModel, table=True):
+    # Clés primaires composées : l'amitié est unique entre ces deux personnes
+    user_username: str = Field(foreign_key="player.username", primary_key=True)
+    friend_username: str = Field(foreign_key="player.username", primary_key=True)
+    
+    status: FriendshipStatus = Field(default=FriendshipStatus.pending)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    

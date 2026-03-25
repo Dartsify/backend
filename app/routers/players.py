@@ -280,8 +280,9 @@ def get_my_friends(
     # chercher toutes les relations d'amitié qui impliquent le joueur actuel
 
     statement = select(Friendship).where(
-        (Friendship.user_username == current_user.username) | #soit il est user_username soit friend_username
-        (Friendship.friend_username == current_user.username)
+        ((Friendship.user_username == current_user.username) | 
+         (Friendship.friend_username == current_user.username)) &
+        (Friendship.status == FriendshipStatus.accepted) 
     )
     
     friendships = session.exec(statement).all()
@@ -310,38 +311,126 @@ def get_my_friends(
     return friends
 
 
-#route pour ajouter un ami -> protégé (c'est pour son profil perso)
-@router.post("/me/friends/{friend_username}")
-def add_friend(
+from app.models.player import FriendshipStatus
+#route pour demander a ajouter un ami -> protégé (c'est pour son profil perso)
+@router.post("/me/friends/request/{friend_username}")
+def send_friend_request(
     friend_username: str,
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)
-):
-    # peut pas s'ajouter soi-même 
+    current_user: Player = Depends(get_current_user)):
+    
     if current_user.username == friend_username:
-        raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous ajouter vous-même en ami !")
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous ajouter vous-même !")
 
-    # verif si le futur ami existe bien dans la db
     friend = session.get(Player, friend_username)
     if not friend:
         raise HTTPException(status_code=404, detail=f"Le joueur '{friend_username}' n'existe pas.")
 
-    # verif si deja ami
+    # Vérifier s'il y a DEJA une relation (peu importe le sens)
     existing_friendship = session.exec(
         select(Friendship).where(
             ((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend_username)) |
             ((Friendship.user_username == friend_username) & (Friendship.friend_username == current_user.username)))).first()
 
     if existing_friendship:
-        raise HTTPException(status_code=400, detail=f"Vous êtes déjà ami avec {friend_username} !")
-
-    
-    new_friendship = Friendship(
+        if existing_friendship.status == FriendshipStatus.accepted:
+            raise HTTPException(status_code=400, detail="Vous êtes déjà amis !")
+        
+        elif existing_friendship.status == FriendshipStatus.pending:
+            raise HTTPException(status_code=400, detail="Une demande est déjà en attente entre vous deux.")
+            
+        elif existing_friendship.status == FriendshipStatus.rejected:
+            # Si c'était refusé avant, on nettoie la db 
+            session.delete(existing_friendship)
+            session.commit()
+            
+            
+    # On crée la demande en statut "pending"
+    new_request = Friendship(
         user_username=current_user.username,
-        friend_username=friend_username
+        friend_username=friend_username,
+        status=FriendshipStatus.pending 
     )
-    
-    session.add(new_friendship)
+    session.add(new_request)
     session.commit()
     
-    return {"message": f"Vous êtes maintenant ami avec {friend_username} !"}
+    return {"message": f"Demande d'ami envoyée à {friend_username} !"}
+
+
+#route pour accepter ou refuser une demande d'ami -> protégé (c'est pour son profil perso)
+@router.post("/me/friends/accept/{requester_username}")
+def accept_friend_request(
+    requester_username: str,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # On cherche la demande OÙ je suis le receveur (friend_username) 
+    # ET le demandeur est requester_username
+    friend_request = session.exec(
+        select(Friendship).where(
+            (Friendship.user_username == requester_username) &
+            (Friendship.friend_username == current_user.username) &
+            (Friendship.status == FriendshipStatus.pending))).first()
+
+    if not friend_request:
+        raise HTTPException(status_code=404, detail="Aucune demande d'ami en attente de ce joueur.")
+
+    # changement du stattu
+    friend_request.status = FriendshipStatus.accepted
+    session.add(friend_request)
+    session.commit()
+
+    return {"message": f"Vous êtes maintenant ami avec {requester_username} !"}
+
+
+#route pour rejeter ami
+@router.post("/me/friends/reject/{requester_username}")
+def reject_friend_request(
+    requester_username: str,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # On cherche la demande en attente
+    friend_request = session.exec(
+        select(Friendship).where(
+            (Friendship.user_username == requester_username) &
+            (Friendship.friend_username == current_user.username) &
+            (Friendship.status == FriendshipStatus.pending)
+        )
+    ).first()
+
+    if not friend_request:
+        raise HTTPException(status_code=404, detail="Aucune demande d'ami en attente de ce joueur.")
+
+    # passe le statut en rejected
+    friend_request.status = FriendshipStatus.rejected
+    session.add(friend_request)
+    session.commit()
+
+    return {"message": f"Vous avez refusé la demande d'ami de {requester_username}."}
+
+
+
+#route pour lister toutes les demandes d'amis
+@router.get("/me/friends/requests", response_model=List[PlayerPublic])
+def get_friend_requests(
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # cherche toutes les requêtes en attente 
+    statement = select(Friendship).where(
+        (Friendship.friend_username == current_user.username) &
+        (Friendship.status == FriendshipStatus.pending))
+    
+    pending_requests = session.exec(statement).all()
+
+    if not pending_requests:
+        return []
+
+    # liste de ppseudo qui ont demandé l'amitié
+    requester_usernames = [req.user_username for req in pending_requests]
+
+    # chercher les profils complets de ces joueurs dans la base de données
+    requesters = session.exec(select(Player).where(Player.username.in_(requester_usernames))).all()
+
+    return requesters
