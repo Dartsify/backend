@@ -3,7 +3,7 @@ from fastapi.security.api_key import APIKeyHeader
 from sqlmodel import Session, select
 import logging
 from datetime import datetime
-
+from app.utils.darts_logic import get_checkout_suggestion
 from app.database import get_session
 from app.models.throw import Throw, ThrowCreate, ThrowRead, ManualThrowCreate
 from app.models.game import Game, GameStatus
@@ -57,11 +57,12 @@ def verify_raspberry_pi(api_key: str = Security(api_key_header)):
 # reponse = requests.post(API_URL, json=payload, headers=headers)
 # print(reponse.json())
 #-----------------------------------------------------------------------------------------------
-
+import json
+from app.stream import stream_manager #pour SSE
 
 # Fonction centrale du jeu : elle reçoit les infos d'un lancer, applique les règles du jeu 
 # (bust, victoire, changement de joueur/tour) et crée le lancer dans la DB avec toutes les infos calculées.
-def process_throw_logic(
+async def process_throw_logic(
     session: Session, 
     game: Game, 
     joueur_actuel: str, 
@@ -180,6 +181,35 @@ def process_throw_logic(
     session.add(game)
     session.commit()
     session.refresh(db_throw)
+    
+    # SSE
+    # On prévient tous les téléphones (appareils) qui écoutent cette partie qu'il faut rafraîchir 
+    # On doit 'await' car la fonction broadcast est asynchrone. 
+    # prépare le dictionnaire complet de la partie (comme dans la route GET /games/{id})
+    game_dict = game.model_dump()
+    participations_enrichies = []
+    
+    for p in game.participations:
+        p_dict = p.model_dump()
+        # On ajoute le nom
+        p_dict["player_name"] = p.player.name if p.player else "Joueur inconnu"
+        # On ajoute les suggestions
+        if game.mode in ["501", "301"]:
+            p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score)
+        else:
+            p_dict["checkout_suggestion"] = []
+        
+        participations_enrichies.append(p_dict)
+
+    game_dict["participations"] = participations_enrichies
+
+    # On met TOUT l'objet dans le message SSE 
+    update_message = json.dumps({
+        "event": "GAME_UPDATED",
+        "game_state": game_dict  #Le front reçoit tout d'un coup 
+    })
+    
+    await stream_manager.broadcast(game.id, update_message)
 
     return db_throw
 
@@ -187,7 +217,7 @@ def process_throw_logic(
 #Routes
 #enregistrer un lancer de flechette
 @router.post("/", response_model=ThrowRead) 
-def register_throw(
+async def register_throw(
     throw_in: ThrowCreate,
     session: Session = Depends(get_session),
     is_hardware_authorized: bool = Depends(verify_raspberry_pi)):
@@ -205,8 +235,8 @@ def register_throw(
     # calcul des points
     points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position)
     
-    # On délègue toute l'intelligence au moteur central !
-    return process_throw_logic(
+    # On délègue toute l'intelligence au moteur central 
+    return await process_throw_logic(#ajout de await pour attendre que le broadcast se termine avant de répondre au Pi (pour éviter les problèmes de concurrence sur la DB)
         session, game, joueur_actuel, tour_actuel, flechette_actuelle,
         points, multiplicateur, throw_in.x_position, throw_in.y_position
     )
@@ -214,7 +244,7 @@ def register_throw(
 
 #route pour rentrer son score manuellement si defaillance technique
 @router.post("/manual", response_model=ThrowRead)
-def register_manual_throw(
+async def register_manual_throw(
     throw_in: ManualThrowCreate,
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
@@ -238,7 +268,7 @@ def register_manual_throw(
     multiplicateur = throw_in.multiplier
 
     # On délègue au moteur central (avec x et y à 0 pour indiquer que c'est manuel) !
-    db_throw = process_throw_logic(
+    db_throw = await process_throw_logic(#pareil que pour le register_throw, on attend que le broadcast se termine avant de répondre au téléphone pour éviter les problèmes de concurrence sur la DB
         session, game, joueur_actuel, tour_actuel, flechette_actuelle,
         points, multiplicateur, 0.0, 0.0
     )

@@ -33,9 +33,10 @@ class GameParticipation(SQLModel, table=True):
     
 #Renvoyer pour chaque joueur de la partie
 class GameParticipationRead(SQLModel):
-    game_id: int
+    # game_id: int
     player_username: str
     player_name: Optional[str] = None
+    is_host: bool 
     current_score: int
     position: Optional[int] = None
     status: ValidationStatus

@@ -233,7 +233,7 @@ def reject_participation(
 #on initialise donc la partie ici
 #Pour la modif des scores et le jeu il faut aller dans app.routers.throws)
 from app.models.game_participation import GameParticipationRead, GameReadWithParticipants
-@router.get("/{game_id}", response_model=GameReadWithParticipants)
+@router.get("/{game_id}", response_model=GameReadWithParticipants,response_model_exclude={"id"} )
 def get_game_state(
     game_id: int,
     session: Session = Depends(get_session),
@@ -252,6 +252,10 @@ def get_game_state(
     # transforme l'objet db "game" en un simple dictionnaire
     game_dict = game.model_dump()
     
+    # Quand la partie est en 'waiting', l'hôte est toujours stocké dans current_player_username.
+    # Si la partie a commencé, on prend par défaut le premier joueur de la liste (le créateur).
+    host_username = game.current_player_username if game.status == GameStatus.waiting else game.participations[0].player_username
+    
     # recréer la liste des participants avec suggestions
     participations_enrichies = []
     
@@ -265,6 +269,7 @@ def get_game_state(
         else:
             p_dict["player_name"] = "Joueur inconnu"
             
+        p_dict["is_host"] = (p.player_username == host_username)
         
         # ajout de suggestion calculée
         if game.mode in ["501", "301"]:
@@ -288,7 +293,7 @@ from fastapi import Query
 def get_all_games(
     limit: int = 50,
     offset: int = 0,
-    status: Optional[GameStatus] = Query(None, description="Filtrer par statut (waiting, in_progress, finished)"),
+    status: Optional[List[GameStatus]] = Query(None, description="Filtrer par statut (waiting, in_progress, finished)"),
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
@@ -304,10 +309,11 @@ def get_all_games(
             .where(GameParticipation.player_username == current_user.username)
             .order_by(Game.start_date.desc())
         )
-        
-    #applique le filtre de statut SI le front en a envoyé un
+    
+    #filtrage multiple
     if status:
-        query = query.where(Game.status == status)
+        # ".in_()" est la commande SQL pour dire "Si le statut du jeu FAIT PARTIE de la liste demandée"
+        query = query.where(Game.status.in_(status))
         
     query = query.offset(offset).limit(limit)
     games = session.exec(query).all()
@@ -546,3 +552,41 @@ def change_game_mode(
         "new_mode": game.mode,
         "new_starting_score": new_starting_score
     }
+    
+    
+    
+from app.stream import stream_manager
+import json
+import asyncio
+from fastapi import Request
+from fastapi.responses import StreamingResponse
+
+#route pour le stream de la partie (SSE) : le front-end reste connecté ici pour recevoir les mises à jour en temps réel
+@router.get("/{game_id}/stream")
+async def game_stream(game_id: int, request: Request):
+    
+    async def event_generator():
+        # On donne une "boîte aux lettres" à cet appareil 
+        q = stream_manager.add_listener(game_id)
+        try:
+            while True:
+                # Si le client s'est déconnecté (fermé l'app), on arrête la boucle
+                if await request.is_disconnected():
+                    break
+                
+                # On attend qu'un message arrive dans la boîte (ex: une fléchette lancée)
+                # asyncio.wait_for permet de verifier regulierement si client toujours la
+                try:
+                    message = await asyncio.wait_for(q.get(), timeout=1.0)
+                    # On formate selon la norme SSE exacte : "data: le_message\n\n"
+                    yield f"data: {message}\n\n"
+                except asyncio.TimeoutError:
+                    # Timeout d'1 seconde normal, on recommence la boucle pour vérifier request.is_disconnected()
+                    continue
+                    
+        finally:
+            # Si le téléphone (appareil) coupe la connexion, on supprime sa "boîte aux lettres"
+            stream_manager.remove_listener(game_id, q)
+
+    # On renvoie la réponse au format 'text/event-stream'
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
