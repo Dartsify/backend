@@ -237,8 +237,8 @@ from app.models.game_participation import GameParticipationRead, GameReadWithPar
 def get_game_state(
     game_id: int,
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user) # Il faut être connecté
-):
+    current_user: Player = Depends(get_current_user)): # Il faut être connecté
+
     # On récupère la partie
     game = session.get(Game, game_id)
     if not game:
@@ -271,9 +271,15 @@ def get_game_state(
             
         p_dict["is_host"] = (p.player_username == host_username)
         
+        if game.status == GameStatus.waiting:
+            darts_left = 3
+        else:
+            darts_left = 4 - game.current_dart_number # si le tour 1 est en cours, current_dart_number = 1 donc darts_left = 3, etc.
+        
+        
         # ajout de suggestion calculée
         if game.mode in ["501", "301"]:
-            p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score)
+            p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score, darts_left)
         else:
             p_dict["checkout_suggestion"] = [] # Pas de suggestion pour le mode perso
         
@@ -577,7 +583,7 @@ async def game_stream(game_id: int, request: Request):
                 # On attend qu'un message arrive dans la boîte (ex: une fléchette lancée)
                 # asyncio.wait_for permet de verifier regulierement si client toujours la
                 try:
-                    message = await asyncio.wait_for(q.get(), timeout=1.0)
+                    message = await asyncio.wait_for(q.get(), timeout=1.0) #await sur la boîte aux lettres, timeout d'1 seconde pour vérifier régulièrement la connexion du client
                     # On formate selon la norme SSE exacte : "data: le_message\n\n"
                     yield f"data: {message}\n\n"
                 except asyncio.TimeoutError:

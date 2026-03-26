@@ -62,7 +62,8 @@ from app.stream import stream_manager #pour SSE
 
 # Fonction centrale du jeu : elle reçoit les infos d'un lancer, applique les règles du jeu 
 # (bust, victoire, changement de joueur/tour) et crée le lancer dans la DB avec toutes les infos calculées.
-async def process_throw_logic(
+#async def' car elle doit attendre l'envoi réseau des notifications SSE à la fin.
+async def process_throw_logic( #async pour faire la transmission SSE après le traitement du lancer, et await pour attendre que la transmission se termine avant de répondre au téléphone 
     session: Session, 
     game: Game, 
     joueur_actuel: str, 
@@ -187,15 +188,25 @@ async def process_throw_logic(
     # On doit 'await' car la fonction broadcast est asynchrone. 
     # prépare le dictionnaire complet de la partie (comme dans la route GET /games/{id})
     game_dict = game.model_dump()
+    
+    host_username = game.current_player_username if game.status == GameStatus.waiting else game.participations[0].player_username
+    
     participations_enrichies = []
     
     for p in game.participations:
         p_dict = p.model_dump()
         # On ajoute le nom
         p_dict["player_name"] = p.player.name if p.player else "Joueur inconnu"
+        
+        # ajout l'indicateur is_host pour ne pas le perdre côté Front 
+        p_dict["is_host"] = (p.player_username == host_username)
+        
+        # calcul cmb de fléchettes il lui reste (3 max)
+        darts_left = 4 - game.current_dart_number # si le tour 1 est en cours, current_dart_number = 1 donc darts_left = 3, etc.
+        
         # On ajoute les suggestions
         if game.mode in ["501", "301"]:
-            p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score)
+            p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score, darts_left)
         else:
             p_dict["checkout_suggestion"] = []
         
@@ -209,7 +220,10 @@ async def process_throw_logic(
         "game_state": game_dict  #Le front reçoit tout d'un coup 
     })
     
-    await stream_manager.broadcast(game.id, update_message)
+    # await libère le serveur pour qu'il gère d'autres requêtes pendant qu'il envoie
+    # ce message reseau à tous les téléphones connectés. Il attend d'avoir fini avant
+    # de renvoyer la réponse finale au Raspberry Pi
+    await stream_manager.broadcast(game.id, update_message) 
 
     return db_throw
 

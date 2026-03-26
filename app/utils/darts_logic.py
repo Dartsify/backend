@@ -166,15 +166,26 @@ CHECKOUT_TABLE = {
     2: ["D1"]
 }#Qu'une seule proposition a chaque fois car le joueur n'a pas le temps de reflechir !
 
+#pq dictio? Si un algorithme qui cherche juste à faire "zéro", il va proposer des combinaisons mathématiquement justes,
+# mais stratégiquement horribles pour un joueur.
+# Exemple pour 90 points : Un algorithme basique pourrait dire de faire ["T10", "T10", "D15"]
+# ou ["Bull", "D20"] La réalité : Un vrai joueur de fléchettes veut faire ["T20", "D15"] ou 
+# ["T18", "D18"] car ce sont des zones de confort. le dictionnaire actuel contient les "chemins optimaux" validés par les pros
 
 #Retourne la combinaison de fléchettes idéale pour finir
-def get_checkout_suggestion(score: int) -> list[str]:
+def get_checkout_suggestion(score: int, darts_left=3) -> list[str]:
     
-    if score > 170:
+    if score > 170 or score <2:
         return [] # Pas de fermeture possible en un tour
     
-    # On cherche si on a la combinaison dans notre dictionnaire
-    # (Si on l'a, on la renvoie. Sinon, on renvoie une liste vide pour l'instant)
-    return CHECKOUT_TABLE.get(score, [])
+    suggestion = CHECKOUT_TABLE.get(score, [])
+    
+    if not suggestion:
+        return [] # Pas de chemin connu pour ce score (ex: 169, 168, 163 etc. qui sont des scores impossibles à finir en 3 fléchettes)
+    
+    if len(suggestion) > darts_left:
+        return [] # Pas assez de fléchettes restantes pour cette combinaison (verif si combi proposee est jouable)
+    
+    return suggestion
 
 
