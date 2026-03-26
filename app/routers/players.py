@@ -217,7 +217,7 @@ def read_player(username: str,
     return player
 
 
-
+from sqlmodel import func , desc
 from app.models.throw import Throw
 #Route pour avoir les stats perso du joueur
 @router.get("/me/stats", response_model=PlayerStats)
@@ -225,48 +225,162 @@ def get_my_stats(
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
-    # récup UNIQUEMENT les participations "validées" (validated) du joueur
-    participations_validees = session.exec(
-        select(GameParticipation)
+    # calcul du nombre de parties jouées (validées)
+    total_games = session.exec(
+        select(func.count())
+        .select_from(GameParticipation)
         .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)).all()
+        .where(GameParticipation.status == ValidationStatus.validated)
+    ).one()
 
-    total_games = len(participations_validees)
-    total_wins = 0
-    
-   # On compte combien de fois le joueur a fini à la position 1
-    total_wins = sum(1 for p in participations_validees if p.position == 1)
+    # Calcul du nombre de victoires (position 1)
+    total_wins = session.exec(
+        select(func.count())
+        .select_from(GameParticipation)
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(GameParticipation.position == 1)
+    ).one()
 
-    # Calcul du pourcentage de victoire
+    # Pourcentage de victoire (calculé en Python)
     win_rate = (total_wins / total_games * 100) if total_games > 0 else 0.0
 
-    # récup tous les lancers du joueur seulement pour les parties validées 
-    validated_game_ids = [p.game_id for p in participations_validees]
+    # jointure pour calculer les lancers et la moyenne (PPD)
+
+    stats_lancers = session.exec(
+        select(
+            func.count(Throw.calculated_score), # Nombre de lancers
+            func.avg(Throw.calculated_score)    # Moyenne des points par lancer
+        )
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+    ).first()
+
+    # On récupère les résultats renvoyés par la base de données (sécurité si c'est vide)
+    total_throws = stats_lancers[0] if stats_lancers and stats_lancers[0] else 0
+    average_ppd = stats_lancers[1] if stats_lancers and stats_lancers[1] else 0.0
+
+    # On groupe par points calculés (20, 19, etc.), on compte, et on prend le 1er (le point le plus touche)
+    favorite_target_row = session.exec(
+        select(Throw.calculated_score, func.count(Throw.id).label("hits"))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(Throw.calculated_score > 0) # On ignore les ratés pour la zone favorite
+        .group_by(Throw.calculated_score)
+        .order_by(desc("hits"))
+    ).first()
     
-    total_throws = 0
-    average_ppd = 0.0
+    favorite_target = favorite_target_row[0] if favorite_target_row else None
 
-    if validated_game_ids:
-        throws = session.exec(
-            select(Throw)
-            .where(Throw.player_username == current_user.username)
-            .where(Throw.game_id.in_(validated_game_ids))).all() # filtre par liste d'ID 
-        
+    # rates
+    total_misses = session.exec(
+        select(func.count(Throw.id))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(Throw.calculated_score == 0) # La fléchette n'a rien touché
+    ).one()
 
-        total_throws = len(throws)
-        
-        # Calcul du PPD (Points Per Dart)
-        if total_throws > 0:
-            total_score = sum(t.calculated_score for t in throws)
-            average_ppd = total_score / total_throws
+    #T20
+    total_triple_20 = session.exec(
+        select(func.count(Throw.id))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(Throw.calculated_score == 20)
+        .where(Throw.multiplier == 3) # (Score de 20 x 3 = 60)
+    ).one()
+    
+    
+    # Calcul des scores par TOUR (Tour complet de 3 fléchettes)
+    scores_par_tour = session.exec(
+        select(
+            Throw.game_id, 
+            Throw.tour_number, 
+            func.sum(Throw.calculated_score * Throw.multiplier).label("tour_score")
+        )
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .group_by(Throw.game_id, Throw.tour_number)
+    ).all()
 
+    total_180s = sum(1 for tour in scores_par_tour if tour.tour_score == 180)
+    total_100_plus = sum(1 for tour in scores_par_tour if tour.tour_score >= 100 and tour.tour_score < 180)
+    
+    # groupe par points, on compte, et on prend le plus petit nombre de touché (-zone la moins touchee)
+    #attention que ca prendra la zone la moins touchee mais pas celle jamais touchee (si par ex
+    # il n'a jamais touche le 2 ca n'affichera pas 2 mais la zone qu'il a touche le moins parmi celles qu'il a touche)
+    cursed_target_row = session.exec(
+        select(Throw.calculated_score, func.count(Throw.id).label("hits"))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(Throw.calculated_score > 0) # ignore les "0" (les ratés complets)
+        .group_by(Throw.calculated_score)
+        .order_by(func.count(Throw.id).asc())
+    ).first()
+    
+    cursed_target = cursed_target_row[0] if cursed_target_row else None    
+    
     return PlayerStats(
         total_games_played=total_games,
         total_wins=total_wins,
         win_rate_percentage=round(win_rate, 1),
         average_points_per_dart=round(average_ppd, 2),
-        total_darts_thrown=total_throws
+        total_darts_thrown=total_throws,
+        favorite_target=favorite_target,
+        cursed_target=cursed_target,
+        total_misses=total_misses,
+        total_triple_20=total_triple_20,
+        total_180s=total_180s,
+        total_100_plus=total_100_plus        
     )
+    
+    
+
+from pydantic import BaseModel
+class Coordinate(BaseModel):
+    x: float
+    y: float
+
+# Route dédiée à la Heatmap (renvoie juste les X et Y des 500 derniers lancers)
+@router.get("/me/heatmap", response_model=List[Coordinate])
+def get_my_heatmap(
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # recup les X et Y des parties validées (limité aux 500 derniers pour pas faire exploser)
+    coords = session.exec(
+        select(Throw.x_position, Throw.y_position)
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == current_user.username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .order_by(Throw.id.desc())
+        .limit(500)
+    ).all()
+
+    # pour le front
+    return [{"x": c[0], "y": c[1]} for c in coords]
+
+
+
     
 from typing import Optional
 from app.models.player import Friendship

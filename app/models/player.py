@@ -99,6 +99,12 @@ class PlayerStats(BaseModel):
     average_points_per_dart: float
     total_darts_thrown: int
     
+    favorite_target: Optional[int] = None  # La zone la plus touchée (ex: 20)
+    total_misses: int = 0                  
+    total_triple_20: int = 0      
+    total_180s: int = 0
+    total_100_plus: int = 0 # Nombre de fois où le joueur a fait 100 points ou plus en un tour (3 fléchettes)         
+    cursed_target: Optional[int] = None # La zone la moins visée 
     
 #Modele pour changer le mot de passe
 class PasswordUpdate(BaseModel):
