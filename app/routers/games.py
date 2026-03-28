@@ -373,7 +373,7 @@ def get_all_games(
     
 #route pour lancer la partie qui a ete cree et qui est en mode waiting (l'hote clique sur "commencer la partie" quand tout le monde est la)
 @router.post("/{game_id}/start", response_model=GameRead)
-def launch_game(
+async def launch_game(
     game_id: int,
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
@@ -409,6 +409,17 @@ def launch_game(
     session.refresh(game)
 
     logger.info(f"La partie {game.id} passe en IN_PROGRESS ! Que le meilleur gagne.")
+    
+    #ajout avec async pour update en temps reel dans le lobby :
+    full_game_state = get_game_state(game_id, session, current_user)
+    safe_game_state = jsonable_encoder(full_game_state)
+
+    update_message = json.dumps({
+        "event": "GAME_UPDATED",
+        "game_state": safe_game_state
+    })
+    await stream_manager.broadcast(game_id, update_message)
+    
     
     return game
 
@@ -521,7 +532,7 @@ async def join_game(
 
 #route pour supp un joueur dans le lobby de la partie (seulement en wwaiting et seul l'hote peut le faire)
 @router.delete("/{game_id}/participants/{username_to_remove}")
-def kick_player_from_game(
+async def kick_player_from_game(
     game_id: int,
     username_to_remove: str,
     session: Session = Depends(get_session),
@@ -569,6 +580,16 @@ def kick_player_from_game(
 
     logger.info(f"Le joueur {username_to_remove} a été expulsé de la partie {game_id} par l'hôte {current_user.username}.")
     
+    #ajout avec le async:
+    full_game_state = get_game_state(game_id, session, current_user)
+    safe_game_state = jsonable_encoder(full_game_state)
+
+    update_message = json.dumps({
+        "event": "GAME_UPDATED",
+        "game_state": safe_game_state
+    })
+    await stream_manager.broadcast(game_id, update_message)
+    
     return {"message": f"Le joueur a été expulsé avec succès de la partie."}
 
 
@@ -578,7 +599,7 @@ class GameModeUpdate(BaseModel):
 
 #fonction pour changer le mode de la partie avant lancement
 @router.patch("/{game_id}/mode")
-def change_game_mode(
+async def change_game_mode(
     game_id: int,
     mode_update: GameModeUpdate,
     session: Session = Depends(get_session),
@@ -622,7 +643,18 @@ def change_game_mode(
     session.commit()
 
     logger.info(f"L'hôte {current_user.username} a changé le mode de la partie {game.id} en {game.mode}.")
+    
+    #ajout avec le async pour update en temps reel dans le lobby :
+    full_game_state = get_game_state(game_id, session, current_user)
+    safe_game_state = jsonable_encoder(full_game_state)
 
+    update_message = json.dumps({
+        "event": "GAME_UPDATED",
+        "game_state": safe_game_state
+    })
+    await stream_manager.broadcast(game_id, update_message)
+    
+    
     return {
         "message": f"Le mode de jeu a été changé en {game.mode}.",
         "new_mode": game.mode,
