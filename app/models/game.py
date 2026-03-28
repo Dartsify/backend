@@ -59,4 +59,9 @@ class GameRead(SQLModel):
     target_id: str
     
 
-    
+class GameListResponse(GameRead):#pour la liste des parties, on ajoute des infos sur la cible et le nombre de joueurs
+    target_name: Optional[str] = None
+    target_location: Optional[str] = None
+    player_count: int = 0
+    winner_username: Optional[str] = None
+    winner_name: Optional[str] = None

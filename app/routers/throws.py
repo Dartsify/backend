@@ -9,6 +9,7 @@ from app.models.throw import Throw, ThrowCreate, ThrowRead, ManualThrowCreate
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player
+from app.models.target import Target
 from app.security.auth import get_current_user
 
 from app.config import RASPBERRY_API_KEY #cle secrete pour lier raspberry
@@ -189,6 +190,16 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
     # prépare le dictionnaire complet de la partie (comme dans la route GET /games/{id})
     game_dict = game.model_dump()
     
+    #ajout des infos sur la cible
+    target = session.get(Target, game.target_id)
+    if target:
+        game_dict["target_name"] = target.name
+        game_dict["target_location"] = target.location
+    else:
+        game_dict["target_name"] = "Cible inconnue"
+        game_dict["target_location"] = "Lieu inconnu"
+    
+    #idd de l'hote
     host_username = game.current_player_username if game.status == GameStatus.waiting else game.participations[0].player_username
     
     participations_enrichies = []

@@ -9,6 +9,10 @@ from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player, Friendship
 from app.security.auth import get_current_user
 from datetime import datetime
+from app.security.auth import create_access_token
+from app.stream import stream_manager
+import json
+from fastapi.encoders import jsonable_encoder #pour transfo date en string et pouvoir envoyer dans le stream
 
 from pydantic import BaseModel
 
@@ -228,7 +232,7 @@ def reject_participation(
 
     
 
-
+from app.models.target import Target 
 #Route pour voir lobby (voir quels joueurs sont la pour debut de partie)
 #on initialise donc la partie ici
 #Pour la modif des scores et le jeu il faut aller dans app.routers.throws)
@@ -251,6 +255,15 @@ def get_game_state(
     
     # transforme l'objet db "game" en un simple dictionnaire
     game_dict = game.model_dump()
+    
+    #recup les infos de cible
+    target = session.get(Target, game.target_id)
+    if target:
+        game_dict["target_name"] = target.name
+        game_dict["target_location"] = target.location
+    else:
+        game_dict["target_name"] = "Cible inconnue"
+        game_dict["target_location"] = "Lieu inconnu"
     
     # Quand la partie est en 'waiting', l'hôte est toujours stocké dans current_player_username.
     # Si la partie a commencé, on prend par défaut le premier joueur de la liste (le créateur).
@@ -324,8 +337,39 @@ def get_all_games(
     query = query.offset(offset).limit(limit)
     games = session.exec(query).all()
     
-    return games
+    enriched_games = []
     
+    for game in games:
+        game_dict = game.model_dump()
+        
+        # ifos de la cible
+        target = session.get(Target, game.target_id)
+        if target:
+            game_dict["target_name"] = target.name
+            game_dict["target_location"] = target.location
+        else:
+            game_dict["target_name"] = "Cible inconnue"
+            game_dict["target_location"] = "Lieu inconnu"
+            
+        #nbr joueurs
+        game_dict["player_count"] = len(game.participations)
+        
+        # gagnant si partie finie
+        game_dict["winner_username"] = None  
+        game_dict["winner_name"] = None
+        
+        if game.status == GameStatus.finished:
+            # Cherche le joueur qui a la position "1"
+            winner = next((p for p in game.participations if p.position == 1), None)
+            if winner:
+                game_dict["winner_username"] = winner.player_username
+                # On essaie de récupérer le vrai prénom, sinon met "Inconnu"
+                game_dict["winner_name"] = winner.player.name if winner.player else "Joueur inconnu"
+                
+        enriched_games.append(game_dict)
+        
+    return enriched_games
+        
     
 #route pour lancer la partie qui a ete cree et qui est en mode waiting (l'hote clique sur "commencer la partie" quand tout le monde est la)
 @router.post("/{game_id}/start", response_model=GameRead)
@@ -380,7 +424,7 @@ class JoinGameRequest(BaseModel):
 
 #route pour rejoindre la partie en tant que joueur (en scannant le QR code de la cible)(in,vite ou non)
 @router.post("/{game_id}/join")
-def join_game(
+async def join_game(
     game_id: int, 
     join_in: JoinGameRequest, 
     session: Session = Depends(get_session),
@@ -420,6 +464,9 @@ def join_game(
         username_to_add = guest_username
         display_name = join_in.name
         status_to_add = ValidationStatus.validated
+        
+        #creation d'un token d'acces pour l'invite pour que front pusse appele la route protegee get game id
+        access_token = create_access_token(data={"sub": guest_username})
 
     #on associe le joueur (invite ou non) à la partie avec le score de départ en fonction du mode de jeu
     starting_score = 501 if game.mode == "501" else (301 if game.mode == "301" else 0)
@@ -435,17 +482,40 @@ def join_game(
     # chrono d'inactivité
     game.last_interaction = datetime.utcnow()
     session.add(game)
-    
     session.commit()
 
     logger.info(f"{display_name} a rejoint la partie {game.id}.")
     
-    return {
+    #diffusion en temps reel dans lobby :
+    #détermine qui est joueur pour requête (le current_user ou notre nouveau guest)
+    user_for_state = current_user if current_user else db_guest
+    
+    #appelfonction pour récupérer l'état parfait de la partie 
+    full_game_state = get_game_state(game.id, session, user_for_state)
+    
+    safe_game_state = jsonable_encoder(full_game_state)
+
+    #  crie dans"le mégaphone"pour tous ceux qui sont dans le lobby
+    update_message = json.dumps({
+        "event": "GAME_UPDATED",
+        "game_state": safe_game_state
+    })
+    await stream_manager.broadcast(game.id, update_message)
+    
+    
+    reponse_front = {
         "message": f"Bienvenue {display_name}, vous avez rejoint la partie !",
         "game_id": game.id,
         "username": username_to_add,
         "starting_score": starting_score
     }
+    
+    # Si c'est un invité, on glisse le token dans la réponse
+    if not current_user:
+        reponse_front["access_token"] = access_token
+        reponse_front["token_type"] = "bearer"
+        
+    return reponse_front
     
     
 

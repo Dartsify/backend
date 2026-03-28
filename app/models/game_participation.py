@@ -48,5 +48,9 @@ from app.models.game import GameRead
 # Le modèle complet de la partie AVEC ses joueurs
 class GameReadWithParticipants(GameRead):
     # Il hérite de GameRead (donc il a déjà id, mode, status, target_id)
+    #on ajoute le nom et lieu de cible pour le front
+    target_name: Optional[str] = None
+    target_location: Optional[str] = None
+    
     # Et on lui ajoute la liste des participants 
     participations: List[GameParticipationRead] = []
