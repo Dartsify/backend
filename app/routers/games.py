@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 import logging
 from typing import List, Optional
 from app.database import get_session
-from app.models.game import Game, GameCreate, GameRead, GameStatus
+from app.models.game import Game, GameCreate, GameRead, GameStatus, GameListResponse
 from app.models.target import Target
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player, Friendship
@@ -308,7 +308,7 @@ def get_game_state(
 from fastapi import Query
 #Route pour lister toutes les parties (historique de ses propres parties en tant que joueur)
 # et si admin il a les parties de tout le monde
-@router.get("/", response_model=List[GameRead])
+@router.get("/", response_model=List[GameListResponse])
 def get_all_games(
     limit: int = 50,
     offset: int = 0,
@@ -671,7 +671,7 @@ from fastapi.responses import StreamingResponse
 
 #route pour le stream de la partie (SSE) : le front-end reste connecté ici pour recevoir les mises à jour en temps réel
 @router.get("/{game_id}/stream")
-async def game_stream(game_id: int, request: Request):
+async def game_stream(game_id: int, request: Request):    
     
     async def event_generator():
         # On donne une "boîte aux lettres" à cet appareil 
@@ -698,3 +698,70 @@ async def game_stream(game_id: int, request: Request):
 
     # On renvoie la réponse au format 'text/event-stream'
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+
+#route ppour quitter une partie sois meme:
+@router.post("/{game_id}/leave")
+async def leave_game(
+    game_id: int,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    #Vérif que joueur est bien dans cette partie
+    participation = next((p for p in game.participations if p.player_username == current_user.username), None)
+    if not participation:
+        raise HTTPException(status_code=400, detail="Vous ne participez pas à cette partie.")
+
+    # idd l'hote
+    host_username = game.current_player_username if game.status == GameStatus.waiting else game.participations[0].player_username
+    is_host = (current_user.username == host_username)
+
+    # scenario si l'hote quitte : on clôture la partie et on prévient tout le monde
+    if is_host:
+        # libère la cible
+        game.status = GameStatus.finished
+        session.add(game)
+        session.commit()
+        
+        logger.info(f"L'hôte {current_user.username} a quitté. La partie {game_id} est clôturée.")
+        
+        # previens tous via le SSE que la partie est finie
+        full_game_state = get_game_state(game_id, session, current_user)
+        safe_game_state = jsonable_encoder(full_game_state)
+        update_message = json.dumps({
+            "event": "GAME_UPDATED",
+            "game_state": safe_game_state
+        })
+        await stream_manager.broadcast(game_id, update_message)
+        
+        return {"message": "Vous avez quitté la partie. En tant qu'hôte, la salle a été fermée."}
+        
+    #scenario si un random quitte
+    else:
+        # On le supprime simplement de la partie
+        session.delete(participation)
+        session.commit()
+        session.refresh(game) # Met à jour l'objet game pour le SSE
+        
+        logger.info(f"Le joueur {current_user.username} a quitté la partie {game_id}.")
+        
+        # ASTUCE POUR LE SSE :
+        # Comme on vient de se supprimer de la partie, si on appelle get_game_state avec 'current_user',
+        # notre propre sécurité va nous renvoyer une erreur 403 (Accès Refusé) !
+        # On utilise donc le profil de l'hôte (qui est toujours là) pour générer l'état de la partie.
+        host_player = session.get(Player, host_username)
+        full_game_state = get_game_state(game_id, session, host_player)
+        
+        safe_game_state = jsonable_encoder(full_game_state)
+        update_message = json.dumps({
+            "event": "GAME_UPDATED",
+            "game_state": safe_game_state
+        })
+        await stream_manager.broadcast(game_id, update_message)
+        
+        return {"message": "Vous avez quitté la partie avec succès."}
