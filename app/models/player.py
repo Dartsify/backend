@@ -70,9 +70,9 @@ class PlayerCreate(SQLModel):
 # modèle pour renvoyer au client (profil perso)
 class PlayerRead(SQLModel):
     username: str
-    email: str
+    email: Optional[str] = None
     name: str
-    age: Optional[int]
+    age: Optional[int] = None
     creation_date: datetime
     
 
@@ -86,7 +86,7 @@ class PlayerUpdate(SQLModel):
 class PlayerPublic(SQLModel):
     username: str
     name: str
-    age: Optional[int]
+    age: Optional[int] = None
     creation_date: datetime
 
 

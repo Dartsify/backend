@@ -18,6 +18,14 @@ def create_player(player: PlayerCreate, session: Session = Depends(get_session))
     
     logger.info(f"Tentative de création du joueur : {player.username}")
     
+    #interdire le mot guest dans le pseudo (car réservé pour les comptes invités)
+    if "guest" in player.username.lower():
+        logger.warning(f"Création refusée : le pseudo '{player.username}' contient le mot réservé 'guest'.")
+        raise HTTPException(
+            status_code=400, 
+            detail="Le pseudo ne peut pas contenir le mot 'guest', qui est réservé aux comptes invités."
+        )
+    
     #forcer email en minuscule avant les verif
     player.email = player.email.lower()
     
