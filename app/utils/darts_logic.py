@@ -172,6 +172,7 @@ CHECKOUT_TABLE = {
 # ou ["Bull", "D20"] La réalité : Un vrai joueur de fléchettes veut faire ["T20", "D15"] ou 
 # ["T18", "D18"] car ce sont des zones de confort. le dictionnaire actuel contient les "chemins optimaux" validés par les pros
 
+
 #Retourne la combinaison de fléchettes idéale pour finir
 def get_checkout_suggestion(score: int, darts_left=3) -> list[str]:
     

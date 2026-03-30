@@ -1,32 +1,27 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session, select
+import random
 import logging
 from datetime import datetime, timedelta
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from sqlmodel import Session, select
 from app.database import get_session
-from app.models.target import TargetUpdate, Target, TargetCreate, TargetRead, TargetStatusRead
-from app.models.game import Game, GameStatus
 
+from app.models.target import Target, TargetCreate, TargetRead, TargetUpdate, TargetStatusRead
+from app.models.game import Game, GameStatus
 from app.models.player import Player
-from app.security.auth import get_current_user
+
+from app.security.auth import get_current_user, verify_admin
 # seuls les joueurs connectés pourront ajouter des cibles !
 
+
+#config du router et du logger
 router = APIRouter(prefix="/targets", tags=["targets"])
 logger = logging.getLogger(__name__)
 
 
-#Verif si c'est bien l'admin
-def verify_admin(current_user: Player):
-    if not current_user.is_admin:
-        logger.warning(f"Alerte : Le joueur {current_user.username} a tenté d'accéder à une route Admin.")
-        raise HTTPException(
-            status_code=403, 
-            detail="Accès refusé. Réservé aux administrateurs."
-        )
 
 
-import random
 # Enregistrer une nouvelle cible physique -> protege (admin only): il faut recenser les cibles utilisables dans la db
 @router.post("/", response_model=TargetRead)
 def create_target(target: TargetCreate,
@@ -63,6 +58,7 @@ def create_target(target: TargetCreate,
 
 
 
+
 # Lister toutes les cibles disponibles (enrgistrées dans la db)
 @router.get("/", response_model=List[TargetRead])
 def get_targets(offset: int = Query(0, ge=0, description="Décalage pour pagination"), #avec pagination 
@@ -74,6 +70,8 @@ def get_targets(offset: int = Query(0, ge=0, description="Décalage pour paginat
     
     targets = session.exec(select(Target).offset(offset).limit(limit)).all()
     return targets
+
+
 
 
 # Voir les détails d'une cible spécifique via son QR Code 
@@ -132,6 +130,8 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
             current_game_status=GameStatus.finished # On peut aussi laisser vide (none) ou mettre "finished" pour indiquer que la cible est dispo
         )
         
+        
+        
 
 # modifier une cible
 @router.patch("/{id}", response_model=TargetRead)
@@ -155,6 +155,8 @@ def update_target(
     session.refresh(db_target)
     logger.info(f"Cible {id} modifiée par l'admin {current_user.username}.")
     return db_target
+
+
 
 
 # supp une cible

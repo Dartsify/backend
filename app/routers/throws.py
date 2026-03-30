@@ -1,26 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException, Security
-from fastapi.security.api_key import APIKeyHeader 
-from sqlmodel import Session, select
+import json
 import logging
 from datetime import datetime
-from app.utils.darts_logic import get_checkout_suggestion
+
+from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi.security.api_key import APIKeyHeader
+
+from sqlmodel import Session, select
 from app.database import get_session
+
 from app.models.throw import Throw, ThrowCreate, ThrowRead, ManualThrowCreate
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player
 from app.models.target import Target
+
+from app.config import RASPBERRY_API_KEY # La clé secrète que le Raspberry Pi doit utiliser pour s'authentifier
 from app.security.auth import get_current_user
-
-from app.config import RASPBERRY_API_KEY #cle secrete pour lier raspberry
-
+from app.utils.darts_logic import get_checkout_suggestion
 from app.utils.dartboard_math import get_score_and_multiplier
+from app.stream import stream_manager # pour envoyer les notifications SSE aux téléphones après chaque lancer
+
 
 router = APIRouter(prefix="/throws", tags=["throws (Register only for Raspberry Pi)"])
 logger = logging.getLogger(__name__)
 
 # On dit à FastAPI de chercher un en-tête appelé "X-API-Key" dans la requête
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+
 
 #verif si bon raspberry
 def verify_raspberry_pi(api_key: str = Security(api_key_header)):
@@ -58,8 +64,9 @@ def verify_raspberry_pi(api_key: str = Security(api_key_header)):
 # reponse = requests.post(API_URL, json=payload, headers=headers)
 # print(reponse.json())
 #-----------------------------------------------------------------------------------------------
-import json
-from app.stream import stream_manager #pour SSE
+
+
+
 
 # Fonction centrale du jeu : elle reçoit les infos d'un lancer, applique les règles du jeu 
 # (bust, victoire, changement de joueur/tour) et crée le lancer dans la DB avec toutes les infos calculées.
@@ -239,6 +246,8 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
     return db_throw
 
 
+
+
 #Routes
 #enregistrer un lancer de flechette
 @router.post("/", response_model=ThrowRead) 
@@ -265,6 +274,8 @@ async def register_throw(
         session, game, joueur_actuel, tour_actuel, flechette_actuelle,
         points, multiplicateur, throw_in.x_position, throw_in.y_position
     )
+
+
 
 
 #route pour rentrer son score manuellement si defaillance technique
@@ -300,3 +311,6 @@ async def register_manual_throw(
     
     logger.info(f"Lancer MANUEL enregistré par {current_user.username} : {points} points.")
     return db_throw
+
+
+

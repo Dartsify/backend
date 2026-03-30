@@ -1,26 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
-import logging
-from typing import List, Optional
-from app.database import get_session
-from app.models.game import Game, GameCreate, GameRead, GameStatus, GameListResponse
-from app.models.target import Target
-from app.models.game_participation import GameParticipation, ValidationStatus
-from app.models.player import Player, Friendship
-from app.security.auth import get_current_user
-from datetime import datetime
-from app.security.auth import create_access_token
-from app.stream import stream_manager
 import json
-from fastapi.encoders import jsonable_encoder #pour transfo date en string et pouvoir envoyer dans le stream
+import random
+import logging
+import asyncio
+from datetime import datetime
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.utils.darts_logic import get_checkout_suggestion
+from sqlmodel import Session, select
+from app.database import get_session
 
+from app.models.game import Game, GameCreate, GameRead, GameStatus, GameListResponse
+from app.models.game_participation import GameParticipation, ValidationStatus, GameReadWithParticipants
+from app.models.player import Player, Friendship, FriendshipStatus
+from app.models.target import Target
+
+from app.security.auth import get_current_user, get_current_user_optional, create_access_token
+from app.utils.darts_logic import get_checkout_suggestion
+from app.stream import stream_manager
+
+#config du router et du logger
 router = APIRouter(prefix="/games", tags=["games"])
 logger = logging.getLogger(__name__)
-
 
 
 #creer une partie
@@ -99,8 +104,6 @@ def create_new_game(
 class PlayerInvite(BaseModel):
     username: str
     
-
-from app.models.player import FriendshipStatus
 
 #route pour ajouter joueur (ami) a la partie
 @router.post("/{game_id}/add_player")
@@ -208,6 +211,9 @@ def validate_participation(
     logger.info(f"Le joueur {current_user.username} a validé sa participation à la partie {game_id}.")
     return {"message": "Partie validée avec succès ! Les statistiques comptent désormais pour votre profil."}
 
+
+
+
 # Route pour REFUSER (Rejeter) sa participation
 @router.post("/{game_id}/reject")
 def reject_participation(
@@ -231,12 +237,10 @@ def reject_participation(
 
 
     
-
-from app.models.target import Target 
+ 
 #Route pour voir lobby (voir quels joueurs sont la pour debut de partie)
 #on initialise donc la partie ici
 #Pour la modif des scores et le jeu il faut aller dans app.routers.throws)
-from app.models.game_participation import GameParticipationRead, GameReadWithParticipants
 @router.get("/{game_id}", response_model=GameReadWithParticipants,response_model_exclude={"id"} )
 def get_game_state(
     game_id: int,
@@ -305,7 +309,8 @@ def get_game_state(
     return game_dict
 
 
-from fastapi import Query
+
+
 #Route pour lister toutes les parties (historique de ses propres parties en tant que joueur)
 # et si admin il a les parties de tout le monde
 @router.get("/", response_model=List[GameListResponse])
@@ -371,6 +376,8 @@ def get_all_games(
     return enriched_games
         
     
+    
+    
 #route pour lancer la partie qui a ete cree et qui est en mode waiting (l'hote clique sur "commencer la partie" quand tout le monde est la)
 @router.post("/{game_id}/start", response_model=GameRead)
 async def launch_game(
@@ -424,14 +431,12 @@ async def launch_game(
     return game
 
 
-from pydantic import BaseModel
-import random
-from typing import Optional
-from app.security.auth import get_current_user_optional
+
 
 #modèle d'entrée : le prénom n'est requis que pour les invités
 class JoinGameRequest(BaseModel):
     name: Optional[str] = None 
+
 
 #route pour rejoindre la partie en tant que joueur (en scannant le QR code de la cible)(in,vite ou non)
 @router.post("/{game_id}/join")
@@ -444,7 +449,7 @@ async def join_game(
     # Vérif de la salle d'attente
     game = session.get(Game, game_id)
     if not game or game.status != GameStatus.waiting:
-        raise HTTPException(status_code=400, detail="Partie introuvable ou a déjà commencé.")
+        raise HTTPException(status_code=400, detail="La partie est introuvable ou a déjà commencé.")
 
     #scenario A : le joueur est connecte a son compte
     if current_user:
@@ -530,6 +535,7 @@ async def join_game(
     
     
 
+
 #route pour supp un joueur dans le lobby de la partie (seulement en wwaiting et seul l'hote peut le faire)
 @router.delete("/{game_id}/participants/{username_to_remove}")
 async def kick_player_from_game(
@@ -593,9 +599,12 @@ async def kick_player_from_game(
     return {"message": f"Le joueur a été expulsé avec succès de la partie."}
 
 
+
+
 #modele pour changer le mode si indecis avant de start la partie
 class GameModeUpdate(BaseModel):
     mode: str # "501", "301", ou "perso"
+
 
 #fonction pour changer le mode de la partie avant lancement
 @router.patch("/{game_id}/mode")
@@ -663,11 +672,6 @@ async def change_game_mode(
     
     
     
-from app.stream import stream_manager
-import json
-import asyncio
-from fastapi import Request
-from fastapi.responses import StreamingResponse
 
 #route pour le stream de la partie (SSE) : le front-end reste connecté ici pour recevoir les mises à jour en temps réel
 @router.get("/{game_id}/stream")
@@ -698,6 +702,7 @@ async def game_stream(game_id: int, request: Request):
 
     # On renvoie la réponse au format 'text/event-stream'
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 
 
@@ -752,7 +757,7 @@ async def leave_game(
         
         # ASTUCE POUR LE SSE :
         # Comme on vient de se supprimer de la partie, si on appelle get_game_state avec 'current_user',
-        # notre propre sécurité va nous renvoyer une erreur 403 (Accès Refusé) !
+        # notre propre sécurité va nous renvoyer une erreur 403 (Accès Refusé) car on n'est plus dans la partie.
         # On utilise donc le profil de l'hôte (qui est toujours là) pour générer l'état de la partie.
         host_player = session.get(Player, host_username)
         full_game_state = get_game_state(game_id, session, host_player)
@@ -765,3 +770,6 @@ async def leave_game(
         await stream_manager.broadcast(game_id, update_message)
         
         return {"message": "Vous avez quitté la partie avec succès."}
+
+
+

@@ -2,21 +2,24 @@ from sqlmodel import SQLModel, create_engine, Session, select
 from fastapi import Depends
 from typing import Annotated
 
+from app.models.target import Target
+
 #pour creation de l'admin
 from app.config import ADMIN_NAME, ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_EMAIL
 
-#Create engine (what holds the connection with db)
+#Cree la connexion à la base de données SQLite (fichier database.db)
 sqlite_file_name = "database.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 
-connect_args = {"check_same_thread": False}# allows FastAPI to use the same SQLite database in diff threads (necessary)
+connect_args = {"check_same_thread": False}# accorde fastapi à utiliser la même connexion à la base de données dans différents threads (utile pour les requêtes simultanées)
 engine = create_engine(sqlite_url, connect_args=connect_args)
 
-#Create tables
+#Ceeration de la base de données et des tables à partir des modèles SQLModel définis dans app/models
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
 
-# Create Session dependency -> session is what stores the objects in memory and keeps track of any changes (then uses the engine to communicate with the database and save the changes)
+# Cree la session -> session est ce qui stocke les objets en mémoire et garde une trace de tous les changements 
+# (puis utilise le moteur pour communiquer avec la base de données et enregistrer les changements)
 def get_session():
     with Session(engine) as session:
         yield session
@@ -47,13 +50,12 @@ def create_initial_admin():
             session.add(new_admin)
             session.commit()
 
-from app.models.target import Target
-from app.models.player import Player
-from app.security.auth import hash_password
 
 #creation de données de test pour le développement (cibles et joueurs)
 def seed_test_data():
-    
+    from app.security.auth import hash_password
+    from app.models.player import Player
+
     with Session(engine) as session:
 
         # cibles
@@ -93,3 +95,5 @@ def seed_test_data():
                 session.add(new_player)
 
         session.commit()
+
+

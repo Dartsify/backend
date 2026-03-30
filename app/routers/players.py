@@ -1,16 +1,25 @@
-from typing import Annotated, List
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session, select
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import List, Optional
 
-from app.database import SessionDep, get_session 
-from app.models.player import PasswordUpdate, PlayerStats, Player, PlayerPublic, PlayerCreate, PlayerRead, PlayerUpdate
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
-from app.security.auth import hash_password, get_current_user, verify_password
+from sqlmodel import Session, select, func, desc
+from app.database import get_session
 
+from app.models.player import Player, PlayerCreate, PlayerRead, PlayerUpdate, PlayerPublic, PlayerStats, PasswordUpdate, Friendship, FriendshipStatus
+from app.models.game import Game, GameStatus
+from app.models.game_participation import GameParticipation, ValidationStatus
+from app.models.throw import Throw
+
+from app.security.auth import hash_password, verify_password, get_current_user
+
+
+#config du router et du logger
 router = APIRouter(prefix="/players", tags=["players"]) #creation route
 logger = logging.getLogger(__name__) # Récupère le logger configuré
+
 
 #Creer un joueur
 @router.post("/", response_model=PlayerRead)
@@ -62,11 +71,15 @@ def create_player(player: PlayerCreate, session: Session = Depends(get_session))
     return db_player
 
 
+
+
 #Lire son propre profil ->route protégée
 #mettre /me avant {username} pour que FastAPI ne confonde pas les 2routes
 @router.get("/me", response_model=PlayerRead)
 def read_current_player(current_user: Player=Depends(get_current_user)):
     return current_user#si token valide on a direct le joueur
+
+
 
 
 #Lire tous les joueurs (avec offset) -> seulement admin
@@ -89,6 +102,7 @@ def get_players(
 
 
 
+
 # #Modifier un joueur (update)-> protégé car ca doit etre son propre profil
 @router.patch("/me", response_model=PlayerRead)
 def update_current_player(
@@ -106,6 +120,8 @@ def update_current_player(
     
     logger.info(f"Le joueur {current_user.username} a mis à jour son profil.")
     return current_user
+
+
 
 
 #Route pour changement de mot de passe
@@ -144,7 +160,7 @@ def update_password(
 
 
 
-from app.models.game import Game, GameStatus
+
 # #Supprimer un joueur(delete)->protégé (ca doit etre son profil a lui)
 @router.delete("/me")
 def delete_current_player(
@@ -189,7 +205,7 @@ def delete_current_player(
 
 
 
-from app.models.game_participation import GameParticipation, ValidationStatus
+
 # Route pour voir ses invitations en attente (notification)
 @router.get("/me/pending")
 def get_pending_invitations(
@@ -206,6 +222,9 @@ def get_pending_invitations(
     ).all()
     
     return pending
+
+
+
 
 # #Lire un player spécifique basé sur son username -> admin
 @router.get("/{username}", response_model=PlayerPublic)
@@ -225,8 +244,8 @@ def read_player(username: str,
     return player
 
 
-from sqlmodel import func , desc
-from app.models.throw import Throw
+
+
 #Route pour avoir les stats perso du joueur
 @router.get("/me/stats", response_model=PlayerStats)
 def get_my_stats(
@@ -360,11 +379,13 @@ def get_my_stats(
     )
     
     
+    
 
-from pydantic import BaseModel
+#modele pour la heatmap (coordonnées X et Y des lancers)
 class Coordinate(BaseModel):
     x: float
     y: float
+
 
 # Route dédiée à la Heatmap (renvoie juste les X et Y des 500 derniers lancers)
 @router.get("/me/heatmap", response_model=List[Coordinate])
@@ -388,10 +409,8 @@ def get_my_heatmap(
     return [{"x": c[0], "y": c[1]} for c in coords]
 
 
-
     
-from typing import Optional
-from app.models.player import Friendship
+
 #route pour filtrer ses amis (basé sur les lettres dans le pseudo) -> protégé (c'est pour son profil perso)
 @router.get("/me/friends", response_model=List[PlayerPublic]) 
 def get_my_friends(
@@ -433,7 +452,8 @@ def get_my_friends(
     return friends
 
 
-from app.models.player import FriendshipStatus
+
+
 #route pour demander a ajouter un ami -> protégé (c'est pour son profil perso)
 @router.post("/me/friends/request/{friend_username}")
 def send_friend_request(
@@ -479,6 +499,8 @@ def send_friend_request(
     return {"message": f"Demande d'ami envoyée à {friend_username} !"}
 
 
+
+
 #route pour accepter ou refuser une demande d'ami -> protégé (c'est pour son profil perso)
 @router.post("/me/friends/accept/{requester_username}")
 def accept_friend_request(
@@ -503,6 +525,8 @@ def accept_friend_request(
     session.commit()
 
     return {"message": f"Vous êtes maintenant ami avec {requester_username} !"}
+
+
 
 
 #route pour rejeter ami
@@ -530,6 +554,7 @@ def reject_friend_request(
     session.commit()
 
     return {"message": f"Vous avez refusé la demande d'ami de {requester_username}."}
+
 
 
 
