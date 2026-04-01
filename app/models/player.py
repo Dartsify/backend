@@ -140,3 +140,6 @@ class Friendship(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
     
+# Modèle pour l'affichage des demandes d'amis en attente
+class FriendRequestResponse(PlayerPublic):
+    request_date: datetime

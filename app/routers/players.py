@@ -9,6 +9,7 @@ from sqlmodel import Session, select, func, desc
 from app.database import get_session
 
 from app.models.player import Player, PlayerCreate, PlayerRead, PlayerUpdate, PlayerPublic, PlayerStats, PasswordUpdate, Friendship, FriendshipStatus
+from app.models.player import FriendRequestResponse
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.throw import Throw
@@ -559,12 +560,12 @@ def reject_friend_request(
 
 
 #route pour lister toutes les demandes d'amis
-@router.get("/me/friends/requests", response_model=List[PlayerPublic])
+@router.get("/me/friends/requests", response_model=List[FriendRequestResponse])
 def get_friend_requests(
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
-    # cherche toutes les requêtes en attente 
+    # Cherche toutes les requetes en attente 
     statement = select(Friendship).where(
         (Friendship.friend_username == current_user.username) &
         (Friendship.status == FriendshipStatus.pending))
@@ -574,13 +575,24 @@ def get_friend_requests(
     if not pending_requests:
         return []
 
-    # liste de ppseudo qui ont demandé l'amitié
-    requester_usernames = [req.user_username for req in pending_requests]
+    # dictionnaire pour lier chaque pseudo à sa date de demande
+    # Ex: {"bobby": "2026-04-01...", "roger": "2026-04-02..."}
+    request_dates = {req.user_username: req.created_at for req in pending_requests}
 
-    # chercher les profils complets de ces joueurs dans la base de données
-    requesters = session.exec(select(Player).where(Player.username.in_(requester_usernames))).all()
+    requesters = session.exec(select(Player).where(Player.username.in_(request_dates.keys()))).all()
 
-    return requesters
+    enriched_requests = []
+    
+    for requester in requesters:
+        # Transforme le profil db en dictionnaire
+        req_dict = requester.model_dump()
+        
+        # ajout de la date de demande correspondante 
+        req_dict["request_date"] = request_dates[requester.username]
+        
+        enriched_requests.append(req_dict)
+
+    return enriched_requests
 
 
 
