@@ -9,7 +9,7 @@ from sqlmodel import Session, select, func, desc
 from app.database import get_session
 
 from app.models.player import Player, PlayerCreate, PlayerRead, PlayerUpdate, PlayerPublic, PlayerStats, PasswordUpdate, Friendship, FriendshipStatus
-from app.models.player import FriendRequestResponse
+from app.models.player import FriendRequestResponse, FriendResponse
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.throw import Throw
@@ -413,14 +413,13 @@ def get_my_heatmap(
     
 
 #route pour filtrer ses amis (basé sur les lettres dans le pseudo) -> protégé (c'est pour son profil perso)
-@router.get("/me/friends", response_model=List[PlayerPublic]) 
+@router.get("/me/friends", response_model=List[FriendResponse]) 
 def get_my_friends(
     search: Optional[str] = Query(None, description="Taper quelques lettres pour chercher un ami"),
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
     # chercher toutes les relations d'amitié qui impliquent le joueur actuel
-
     statement = select(Friendship).where(
         ((Friendship.user_username == current_user.username) | 
          (Friendship.friend_username == current_user.username)) &
@@ -429,13 +428,18 @@ def get_my_friends(
     
     friendships = session.exec(statement).all()
 
-    # extrait juste les pseudos des amis dans une liste
+    # extrait juste les pseudos des amis dans une liste et leur date dans un dict
     friend_usernames = []
+    friend_dates = {}
+    
     for f in friendships:
         if f.user_username == current_user.username:
-            friend_usernames.append(f.friend_username)
+            ami = f.friend_username
         else:
-            friend_usernames.append(f.user_username)
+            ami = f.user_username
+            
+        friend_usernames.append(ami)
+        friend_dates[ami] = f.created_at # On sauvegarde la date de cette amitié
 
     if not friend_usernames:
         return [] # pas d'amis
@@ -443,14 +447,51 @@ def get_my_friends(
     #récup les vrais profils des amis depuis la table Player
     query = select(Player).where(Player.username.in_(friend_usernames))
 
-
     if search:
         # Si le front envoie "?search=ad", on cherche "%ad%" (ce qui contient "ad")
         query = query.where(Player.username.ilike(f"%{search}%"))
 
     friends = session.exec(query).all()
     
-    return friends
+    #recup de plus de infos pour front
+    my_game_ids_query = select(GameParticipation.game_id).where(GameParticipation.player_username == current_user.username)
+    
+    enriched_friends = []
+    
+    for friend in friends:
+        friend_dict = friend.model_dump()
+        
+        #prendre date exacte dans le dict de chaque ami pour le front
+        friend_dict["friends_since"] = friend_dates[friend.username] 
+        
+        # Nombre de parties finies jouées ENSEMBLE
+        # C'est-à-dire : l'ami est dans une partie dont l'ID fait partie de mes parties
+        games_together_ids = session.exec(
+            select(GameParticipation.game_id)
+            .join(Game)
+            .where(GameParticipation.player_username == friend.username)
+            .where(GameParticipation.game_id.in_(my_game_ids_query))
+            .where(Game.status == GameStatus.finished) # On ne compte que les parties terminées
+        ).all()
+        
+        friend_dict["games_played_together"] = len(games_together_ids)
+        
+        # Nombre de victoires de current_user contre cet ami
+        games_won = 0
+        if games_together_ids:
+            games_won = session.exec(
+                select(func.count())
+                .select_from(GameParticipation)
+                .where(GameParticipation.player_username == current_user.username)
+                .where(GameParticipation.game_id.in_(games_together_ids))
+                .where(GameParticipation.position == 1) # position 1 = Victoire 
+            ).one()
+            
+        friend_dict["games_won_against"] = games_won
+        
+        enriched_friends.append(friend_dict)
+
+    return enriched_friends
 
 
 
@@ -593,6 +634,34 @@ def get_friend_requests(
         enriched_requests.append(req_dict)
 
     return enriched_requests
+
+
+
+
+#route pour supprimer un ami (effacement mutuel)
+@router.delete("/me/friends/{friend_username}")
+def remove_friend(
+    friend_username: str,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # On cherche la relation d'amitié peu importe qui a fait la demande au départ
+    friendship = session.exec(
+        select(Friendship).where(
+            ((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend_username)) |
+            ((Friendship.user_username == friend_username) & (Friendship.friend_username == current_user.username))
+        )
+    ).first()
+    
+    if not friendship:
+        raise HTTPException(status_code=404, detail="Vous n'êtes pas/plus amis avec ce joueur.")
+        
+    session.delete(friendship)
+    session.commit()
+    
+    logger.info(f"{current_user.username} a supprimé {friend_username} de ses amis.")
+    
+    return {"message": f"Vous n'êtes plus amis avec {friend_username}."}
 
 
 

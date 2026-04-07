@@ -2,8 +2,12 @@ import math
 #Le fichier est fait pour que les rayons soeint en milimetres !!
 #Si David les renvois en pixels il faudra changer ca!!!
 
+
 # Les 20 secteurs dans l'ordre des aiguilles d'une montre
 SECTORS = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5]
+
+
+
 
 def get_score_and_multiplier(x: float, y: float) -> tuple[int, int]:
     #il faut transformer les coordonnees en points (en principe le bull sera en 0.0)

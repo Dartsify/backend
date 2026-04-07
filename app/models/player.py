@@ -143,3 +143,10 @@ class Friendship(SQLModel, table=True):
 # Modèle pour l'affichage des demandes d'amis en attente
 class FriendRequestResponse(PlayerPublic):
     request_date: datetime
+    
+
+#modele pour affichage de la list d'amis avec stats
+class FriendResponse(PlayerPublic):
+    friends_since: datetime
+    games_played_together: int
+    games_won_against: int
