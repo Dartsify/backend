@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
-from pydantic import EmailStr, field_validator
+from pydantic import EmailStr, field_validator, BaseModel
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from enum import Enum

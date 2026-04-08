@@ -100,20 +100,19 @@ def create_new_game(
 
 
 
-#modèle Pydantic juste pour recevoir le pseudo de l'ami à inviter
-class PlayerInvite(BaseModel):
-    username: str
+#modèle Pydantic juste pour recevoir les pseudo des ami à inviter
+class PlayerInvites(BaseModel):
+    usernames: List[str]
     
 
 #route pour ajouter joueur (ami) a la partie
-@router.post("/{game_id}/add_player")
-def add_player_to_game(
+@router.post("/{game_id}/add_players")
+async def add_players_to_game(
     game_id: int,
-    invite: PlayerInvite,
+    invites: PlayerInvites,
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)): # Le joueur qui invite doit être connecte
+    current_user: Player = Depends(get_current_user)): 
     
-    # vérif si partie existe
     game = session.get(Game, game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Partie introuvable.")
@@ -121,69 +120,67 @@ def add_player_to_game(
     if game.status != GameStatus.waiting:
         raise HTTPException(status_code=400, detail="Impossible de rejoindre une partie terminée ou en cours.")
 
-    
-
-    # verif si joueur qui invite fait bien partie de ce jeu (Seul l'hôte/un participant peut inviter d'autres)
     host_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
     if not host_participation:
         raise HTTPException(status_code=403, detail="Vous ne pouvez pas inviter de joueurs dans une partie à laquelle vous ne participez pas.")
 
-    #verif si l'ami invite existe deja dans la base de donnees
-    friend = session.get(Player, invite.username)
-    if not friend:
-        raise HTTPException(status_code=404, detail=f"Le joueur '{invite.username}' n'existe pas. Dites lui de se créer un compte !")
-
-    
-    #vérifie si une ligne existe dans la table Friendship entre les deux joueurs
-    is_friend = session.exec(
-        select(Friendship).where(
-            (((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend.username)) |
-            ((Friendship.user_username == friend.username) & (Friendship.friend_username == current_user.username))) &
-            (Friendship.status == FriendshipStatus.accepted) 
-        )
-    ).first()
-    
-    if not is_friend:
-        raise HTTPException(
-            status_code=403, 
-            detail=f"Vous ne pouvez pas inviter {friend.username} car il/elle n'est pas dans votre liste d'amis !"
-        )
-    
-    
-    # Verif que l'ami n'est pas DÉJÀ dans la partie
-    existing_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": invite.username})
-    if existing_participation:
-        raise HTTPException(status_code=400, detail=f"Le joueur '{invite.username}' est déjà dans cette partie.")
-
-    # Ajuster son scor de depart en fonction du mode
     if game.mode == "501":
         starting_score = 501
     elif game.mode == "301":
         starting_score = 301
-    else: # mode "perso" (pour le jury)
+    else: 
         starting_score = 0
 
-    # ajouter l'ami à la partie 
-    new_participation = GameParticipation(
-        game_id=game.id,
-        player_username=friend.username,
-        current_score=starting_score,
-        status=ValidationStatus.pending
-    )
-    
-    #chrono reboot
-    game.last_interaction = datetime.utcnow()
-    session.add(game)
-    
-    session.add(new_participation)
-    session.commit()
+    added_players = []
 
-    logger.info(f"Le joueur {friend.username} a été ajouté à la partie {game.id} par {current_user.username}.")
+    for username in invites.usernames:
+        friend = session.get(Player, username)
+        if not friend:
+            continue
+
+        is_friend = session.exec(
+            select(Friendship).where(
+                (((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend.username)) |
+                ((Friendship.user_username == friend.username) & (Friendship.friend_username == current_user.username))) &
+                (Friendship.status == FriendshipStatus.accepted)
+            )
+        ).first()
+        
+        if not is_friend:
+            continue
+        
+        existing_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": friend.username})
+        if existing_participation:
+            continue
+
+        new_participation = GameParticipation(
+            game_id=game.id,
+            player_username=friend.username,
+            current_score=starting_score,
+            status=ValidationStatus.pending
+        )
+        session.add(new_participation)
+        added_players.append(friend.username)
+
+    if added_players:
+        game.last_interaction = datetime.utcnow()
+        session.add(game)
+        session.commit()
+        logger.info(f"Les joueurs {added_players} ont été ajoutés à la partie {game.id} par {current_user.username}.")
+        
+        # SSE
+        full_game_state = get_game_state(game_id, session, current_user)
+        safe_game_state = jsonable_encoder(full_game_state)
+        update_message = json.dumps({
+            "event": "GAME_UPDATED",
+            "game_state": safe_game_state
+        })
+        await stream_manager.broadcast(game_id, update_message)
     
     return {
-        "message": f"{friend.username} a rejoint la partie avec succès !",
+        "message": f"{len(added_players)} ami(s) a/ont rejoint la partie avec succès !",
         "game_id": game.id,
-        "player": friend.username,
+        "added_players": added_players,
         "starting_score": starting_score
     }
     
@@ -773,3 +770,89 @@ async def leave_game(
 
 
 
+
+class GuestInvites(BaseModel):
+    guest_names: List[str] # Le front enverra {"guest_names": ["Michel", "Hubert"]}
+    
+    
+
+
+@router.post("/{game_id}/add_guests")
+async def add_guests_to_game(
+    game_id: int,
+    guests: GuestInvites, 
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    if game.status != GameStatus.waiting:
+        raise HTTPException(status_code=400, detail="Impossible d'ajouter des invités dans une partie terminée ou en cours.")
+
+    host_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
+    if not host_participation or not host_participation.is_host:
+        raise HTTPException(status_code=403, detail="Seul l'hôte de la partie peut ajouter des invités manuellement.")
+
+    if game.mode == "501":
+        starting_score = 501
+    elif game.mode == "301":
+        starting_score = 301
+    else: 
+        starting_score = 0
+
+    added_guests = []
+
+    for guest_name in guests.guest_names:
+        
+        random_digits = random.randint(10000, 99999)
+        guest_username = f"guest_{random_digits}"
+        
+        while session.get(Player, guest_username):
+            random_digits = random.randint(10000, 99999)
+            guest_username = f"guest_{random_digits}"
+
+        new_guest = Player(
+            username=guest_username,
+            name=guest_name,
+            email=f"{guest_username}@guest.dartsify.com", 
+            password="GUEST_NO_PASSWORD", 
+            is_guest=True
+        )
+        session.add(new_guest)
+        
+        new_participation = GameParticipation(
+            game_id=game.id,
+            player_username=guest_username,
+            current_score=starting_score,
+            status=ValidationStatus.validated 
+        )
+        session.add(new_participation)
+        
+        added_guests.append({
+            "username": guest_username,
+            "name": guest_name
+        })
+
+    if added_guests:
+        game.last_interaction = datetime.utcnow()
+        session.add(game)
+        session.commit()
+        logger.info(f"Les invités {added_guests} ont été ajoutés à la partie {game.id} par {current_user.username}.")
+        
+        #SSE
+        full_game_state = get_game_state(game_id, session, current_user)
+        safe_game_state = jsonable_encoder(full_game_state)
+        update_message = json.dumps({
+            "event": "GAME_UPDATED",
+            "game_state": safe_game_state
+        })
+        await stream_manager.broadcast(game_id, update_message)
+    
+    return {
+        "message": f"{len(added_guests)} invité(s) ajouté(s) avec succès !",
+        "game_id": game.id,
+        "added_guests": added_guests, 
+        "starting_score": starting_score
+    }
