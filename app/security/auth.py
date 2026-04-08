@@ -5,7 +5,7 @@ from typing import Optional
 import bcrypt
 from jose import JWTError, jwt
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request 
 from fastapi.security import OAuth2PasswordBearer
 
 from sqlmodel import Session
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # indique à FastAPI où les joueurs doivent aller pour s'authentifier
 # (dans routers/auth.py)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False) # on met auto_error à False pour pouvoir gérer nous même les cas où le token est absent ou invalide (ex: invité qui rejoint une partie sans être connecté)
 
 
 
@@ -53,33 +53,54 @@ def create_access_token(data: dict):
 
 
 
+
+# Cette fonction cherche le token dans le Header, et sinon dans le Cookie
+def get_token_from_header_or_cookie(
+    request: Request,
+    token_from_header: Optional[str] = Depends(oauth2_scheme)) -> Optional[str]:
+    
+    if token_from_header:
+        return token_from_header
+        
+    # on fouille dans les Cookies (Méthode SSE / Client-side pour Mathias)
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        if cookie_token.startswith("Bearer "):
+            return cookie_token.split(" ")[1]
+        return cookie_token # Au cas où il est sauvegardé sans "Bearer "
+        
+    return None
+
+
+
 #fonction pour securite
-def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
-    #si quelque chose cloche avec le token
+def get_current_user(
+    token: Optional[str] = Depends(get_token_from_header_or_cookie), # utilise notre extracteur
+    session: Session = Depends(get_session)):
+    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Impossible de valider les identifiants (Token invalide ou expiré)",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
+    # Si ni le header ni le cookie n'ont de token
+    if not token:
+        raise credentials_exception
+    
     try:
-        # essai de décoder le token avec notre clé secrète
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        
-        # recupère le "sub" (le username qu'on avait mis lors du login)
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
             
     except JWTError:
-        # Si le token est expiré ou qu'il a été falsifié-> erreur
         raise credentials_exception
 
-    # Si le token est bon, chercher joueur correspondant dans db
     player = session.get(Player, username)
     if player is None:
         raise credentials_exception
-  
+
     return player
 
 
@@ -90,18 +111,18 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=
 
 # fonction qui va servir pour les routes où le token est optionnel (ex: rejoindre une partie en tant qu'invité)
 def get_current_user_optional(
-    token: Optional[str] = Depends(oauth2_scheme_optional),
+    token: Optional[str] = Depends(get_token_from_header_or_cookie), # <-- On utilise notre extracteur ici aussi
     session: Session = Depends(get_session)):
     
-    # S'il n'y a pas de token envoyé par le téléphone, c'est un invité 
+    # S'il n'y a pas de token envoyé (ni Header, ni Cookie), c'est un invité 
     if not token:
         return None 
         
-    # S'il y a un token, on essaie de l'identifier avec vraie fonction
     try:
+        # On réutilise la fonction principale
         return get_current_user(token=token, session=session) 
     except Exception:
-        # Si le token est invalide ou expiré, on le traite comme un invité
+        # Si le token est invalide ou expiré -> invité
         return None
     
     

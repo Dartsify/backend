@@ -36,7 +36,10 @@ app = FastAPI(title="Dartsify API")
 # Autoriser le Front-end à communiquer avec l'API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # En prod -> mettre la vraie URL du front (ex: ["https://dartsify.com"])
+    allow_origins=[
+        "http://localhost:3000",         # Pour si Mathias code sur la même machine
+        "http://100.107.205.98:3000"     # via tunnel tailscale mathias
+    ], # En prod -> mettre la vraie URL du front (ex: ["https://dartsify.com"])
     allow_credentials=True,
     allow_methods=["*"], # Autorise les GET, POST, PATCH, DELETE
     allow_headers=["*"], # Autorise le header "Authorization" pour le Token
