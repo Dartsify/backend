@@ -124,6 +124,9 @@ async def add_players_to_game(
     if not host_participation:
         raise HTTPException(status_code=403, detail="Vous ne pouvez pas inviter de joueurs dans une partie à laquelle vous ne participez pas.")
 
+    if game.current_player_username != current_user.username:
+        raise HTTPException(status_code=403, detail="Seul l'hôte de la partie peut inviter des amis.")
+    
     if game.mode == "501":
         starting_score = 501
     elif game.mode == "301":
@@ -792,7 +795,11 @@ async def add_guests_to_game(
         raise HTTPException(status_code=400, detail="Impossible d'ajouter des invités dans une partie terminée ou en cours.")
 
     host_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
-    if not host_participation or not host_participation.is_host:
+    if not host_participation:
+        raise HTTPException(status_code=403, detail="Vous ne participez pas à cette partie.")
+        
+    # Sécurité : Est-ce que le joueur est bien l'hôte ? (le current_player de la table Game)
+    if game.current_player_username != current_user.username:
         raise HTTPException(status_code=403, detail="Seul l'hôte de la partie peut ajouter des invités manuellement.")
 
     if game.mode == "501":
