@@ -53,8 +53,7 @@ def create_access_token(data: dict):
 
 
 
-
-# Cette fonction cherche le token dans le Header, et sinon dans le Cookie
+# Cette fonction cherche le token dans le Header et sinon dans le Cookie
 def get_token_from_header_or_cookie(
     request: Request,
     token_from_header: Optional[str] = Depends(oauth2_scheme)) -> Optional[str]:
@@ -70,6 +69,7 @@ def get_token_from_header_or_cookie(
         return cookie_token # Au cas où il est sauvegardé sans "Bearer "
         
     return None
+
 
 
 
