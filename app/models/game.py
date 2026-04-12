@@ -18,7 +18,16 @@ class Game(SQLModel, table=True):
     
     id: Optional[int] = Field(default=None, primary_key=True)#En mettant id: Optional[int] = Field(default=None, primary_key=True), tu dis à Python : "Laisse-le vide pour l'instant, c'est la base de données qui s'en occupera quand ce sera le moment de le sauvegarder."
     mode: str = Field(index=True) #mode obligatoire pour jouer
-    start_date: datetime = Field(default_factory=datetime.utcnow)
+    
+    #quand lobby ouvert (automatique a la creation)
+    creation_date: datetime = Field(default_factory=datetime.utcnow) 
+    
+    #quand partie est lancee(/start)
+    start_date: Optional[datetime] = None
+    
+    #quand partie est terminee (automatique a la fin, si hote quitte ou si victoire)
+    end_date: Optional[datetime] = None
+    
     status: GameStatus = Field(default=GameStatus.in_progress) #par defaut on dira que la partie est en train d'etre jouee
     
     #cle etrangere vers cible
@@ -54,7 +63,11 @@ class GameCreate(SQLModel):
 class GameRead(SQLModel):
     id: int
     mode: str
-    start_date: datetime
+    
+    creation_date: datetime
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    
     status: GameStatus
     target_id: str
     

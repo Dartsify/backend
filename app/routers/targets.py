@@ -97,7 +97,9 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
         # Si ça fait plus de 20 minutes (1200 secondes)
         if time_elapsed > timedelta(minutes=20):
             logger.info(f"La partie {active_game.id} a expiré (inactivité). Clôture automatique.")
-            active_game.status = GameStatus.finished # On force la fin de la partie
+            active_game.status = GameStatus.finished # force la fin de la partie
+            
+            active_game.end_date = datetime.utcnow() # enregistre la fin de la partie
             session.add(active_game)
             session.commit()
             

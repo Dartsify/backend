@@ -43,6 +43,8 @@ class GameParticipationRead(SQLModel):
     
     checkout_suggestion: Optional[List[str]] = []
     
+    is_friend: bool =False #pour dire si le joueur est ami ou pas avec celui qui regarde (utile pour le front)
+    
 
 from app.models.game import GameRead
 # Le modèle complet de la partie AVEC ses joueurs

@@ -109,6 +109,8 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
             participation.position = 1 
             game.status = GameStatus.finished
             
+            game.end_date = datetime.utcnow() # On enregistre l'heure de la victoire 
+            
             #classement des perdants (pour mathias)
             autres_joueurs = [p for p in game.participations if p.player_username != participation.player_username]
             autres_joueurs.sort(key=lambda p: p.current_score)
@@ -155,6 +157,8 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
                 if game.mode == "perso":
                     #mode perso doit s'arrete
                     game.status = GameStatus.finished
+                    game.end_date = datetime.utcnow() # On enregistre l'heure de fin
+                    
                     # récup tous les joueurs de la partie et trie les scores pour distribuer les places (1er, 2eme, 3eme...)
                     tous_les_joueurs = game.participations
                     tous_les_joueurs.sort(key=lambda p: p.current_score, reverse=True)

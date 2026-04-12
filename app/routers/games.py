@@ -277,22 +277,43 @@ def get_game_state(
     participations_enrichies = []
     
     for p in game.participations:
-        #transforme la ligne du participant en dictionnaire
+        # transforme la ligne du participant en dictionnaire
         p_dict = p.model_dump()
         
-        # Grâce à la relation Relationship, SQLModel va chercher le profil du joueur
+        # Grâce à la relation Relationship -> chercher le profil du joueur
         if p.player:
-            p_dict["player_name"] = p.player.name #affiche le nom du joueur pour le front
+            p_dict["player_name"] = p.player.name # affiche le nom du joueur pour le front
         else:
             p_dict["player_name"] = "Joueur inconnu"
             
         p_dict["is_host"] = (p.player_username == host_username)
         
+        #verif si amitie (pour front)
+        # affiche pas le bouton "ami" pour soi-même
+        if p.player_username == current_user.username:
+            p_dict["is_friend"] = False
+            
+        # profil "guest" ne peut pas être un ami
+        elif p.player and getattr(p.player, "is_guest", False):
+            p_dict["is_friend"] = False
+            
+        # sinon, on cherche dans la table Friendship
+        else:
+            is_friend_db = session.exec(
+                select(Friendship).where(
+                    (
+                        ((Friendship.user_username == current_user.username) & (Friendship.friend_username == p.player_username)) |
+                        ((Friendship.user_username == p.player_username) & (Friendship.friend_username == current_user.username))
+                    ) & 
+                    (Friendship.status == FriendshipStatus.accepted)
+                )
+            ).first()
+            p_dict["is_friend"] = True if is_friend_db else False
+        
         if game.status == GameStatus.waiting:
             darts_left = 3
         else:
             darts_left = 4 - game.current_dart_number # si le tour 1 est en cours, current_dart_number = 1 donc darts_left = 3, etc.
-        
         
         # ajout de suggestion calculée
         if game.mode in ["501", "301"]:
@@ -324,14 +345,14 @@ def get_all_games(
     # base de la requête selon le rôle (Admin ou Joueur)
     if current_user.is_admin:
         # L'admin a accès à TOUTES les parties
-        query = select(Game).order_by(Game.start_date.desc())
+        query = select(Game).order_by(Game.creation_date.desc())
     else:
         # Le joueur ne voit que SES parties (jointure)
         query = (
             select(Game)
             .join(GameParticipation)
             .where(GameParticipation.player_username == current_user.username)
-            .order_by(Game.start_date.desc())
+            .order_by(Game.creation_date.desc())
         )
     
     #filtrage multiple
@@ -407,6 +428,9 @@ async def launch_game(
 
     #Go
     game.status = GameStatus.in_progress
+    
+    # fige l'heure exacte du début de la partie
+    game.start_date = datetime.utcnow()
     
     #chrono reinitialise
     game.last_interaction = datetime.utcnow()
@@ -730,6 +754,8 @@ async def leave_game(
     if is_host:
         # libère la cible
         game.status = GameStatus.finished
+        
+        game.end_date = datetime.utcnow() # Fin prématurée de la partie
         session.add(game)
         session.commit()
         
