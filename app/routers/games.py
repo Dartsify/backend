@@ -11,13 +11,14 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from app.database import get_session
 
 from app.models.game import Game, GameCreate, GameRead, GameStatus, GameListResponse
 from app.models.game_participation import GameParticipation, ValidationStatus, GameReadWithParticipants
 from app.models.player import Player, Friendship, FriendshipStatus
 from app.models.target import Target
+from app.models.throw import Throw
 
 from app.security.auth import get_current_user, get_current_user_optional, create_access_token
 from app.utils.darts_logic import get_checkout_suggestion
@@ -279,6 +280,27 @@ def get_game_state(
     for p in game.participations:
         # transforme la ligne du participant en dictionnaire
         p_dict = p.model_dump()
+        
+        #partie pour calculer le averge point par fleche en temps reel
+        #compte combien de fléchettes ce joueur a lancé dans cett partie
+        darts_thrown = session.exec(
+            select(func.count(Throw.id))
+            .where(Throw.game_id == game.id)
+            .where(Throw.player_username == p.player_username)
+        ).one()
+
+        #calcul moyenne (PPD) s'il a lancé au moins 1 fléchette
+        if darts_thrown > 0:
+            if game.mode in ["501", "301"]:
+                starting_score = 501 if game.mode == "501" else 301
+                points_scored = starting_score - p.current_score
+                p_dict["current_average"] = round(points_scored / darts_thrown, 2)
+            else: 
+                # Mode perso (le score monte)
+                p_dict["current_average"] = round(p.current_score / darts_thrown, 2)
+        else:
+            p_dict["current_average"] = 0.0
+        
         
         # Grâce à la relation Relationship -> chercher le profil du joueur
         if p.player:
