@@ -4,7 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Chemin absolu vers le dossier où se trouvent scripts sur le Raspberry Pi 
+# Chemin absolu vers le dossier où se trouvent scripts sur le Raspberry Pi (a veriffffff)
 SCRIPTS_PATH = "/home/pi/dartsify/led_scripts/"
 
 

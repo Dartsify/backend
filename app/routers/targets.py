@@ -11,6 +11,8 @@ from app.models.target import Target, TargetCreate, TargetRead, TargetUpdate, Ta
 from app.models.game import Game, GameStatus
 from app.models.player import Player
 
+from app.utils.led_controller import trigger_led_script
+
 from app.security.auth import get_current_user, verify_admin
 # seuls les joueurs connectés pourront ajouter des cibles !
 
@@ -100,6 +102,8 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
             active_game.status = GameStatus.finished # force la fin de la partie
             
             active_game.end_date = datetime.utcnow() # enregistre la fin de la partie
+            trigger_led_script("unused.py") #lance l'animation de libération de la cible sur le Raspberry Pi
+            
             session.add(active_game)
             session.commit()
             
