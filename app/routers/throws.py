@@ -18,6 +18,7 @@ from app.config import RASPBERRY_API_KEY # La clé secrète que le Raspberry Pi 
 from app.security.auth import get_current_user
 from app.utils.darts_logic import get_checkout_suggestion
 from app.utils.dartboard_math import get_score_and_multiplier
+from app.utils.led_controller import trigger_led_script # pour lancer les animations LED sur le Raspberry Pi après un bust ou une victoire
 from app.stream import stream_manager # pour envoyer les notifications SSE aux téléphones après chaque lancer
 
 
@@ -95,6 +96,8 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
         if nouveau_score < 0 or nouveau_score == 1 or (nouveau_score == 0 and multiplicateur != 2):
             is_bust = True
             
+            trigger_led_script("bust.py") #lance l'animation de bust sur le Raspberry Pi
+            
             # Annulation des points
             previous_throws = session.exec(
                 select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)).all()
@@ -104,6 +107,10 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
             
         elif nouveau_score == 0 and multiplicateur == 2:
             is_victory = True
+            
+            trigger_led_script("victory.py") #lance l'animation de victoire sur le Raspberry Pi
+
+            
             participation.current_score = 0
             participation.final_score = 0
             participation.position = 1 

@@ -88,6 +88,7 @@ class PlayerPublic(SQLModel):
     name: str
     age: Optional[int] = None
     creation_date: datetime
+    
 
 
 #Modele pour les stats d'un joueur    
@@ -150,3 +151,10 @@ class FriendResponse(PlayerPublic):
     friends_since: datetime
     games_played_together: int
     games_won_against: int
+    
+    
+    
+#modele pour le profil d'un joueur vu par un autre joueur (amis)
+class PlayerProfile(PlayerPublic):
+    # On inclut les stats directement dans le profil
+    stats: Optional[PlayerStats] = None

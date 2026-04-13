@@ -22,6 +22,7 @@ from app.models.throw import Throw
 
 from app.security.auth import get_current_user, get_current_user_optional, create_access_token
 from app.utils.darts_logic import get_checkout_suggestion
+from app.utils.led_controller import trigger_led_script
 from app.stream import stream_manager
 
 #config du router et du logger
@@ -545,6 +546,8 @@ async def join_game(
     game.last_interaction = datetime.utcnow()
     session.add(game)
     session.commit()
+    
+    trigger_led_script("join.py") #lance l'animation de bienvenue sur le Raspberry Pi
 
     logger.info(f"{display_name} a rejoint la partie {game.id}.")
     

@@ -9,7 +9,7 @@ from sqlmodel import Session, select, func, desc
 from app.database import get_session
 
 from app.models.player import Player, PlayerCreate, PlayerRead, PlayerUpdate, PlayerPublic, PlayerStats, PasswordUpdate, Friendship, FriendshipStatus
-from app.models.player import FriendRequestResponse, FriendResponse
+from app.models.player import FriendRequestResponse, FriendResponse, PlayerProfile
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.throw import Throw
@@ -20,6 +20,130 @@ from app.security.auth import hash_password, verify_password, get_current_user
 #config du router et du logger
 router = APIRouter(prefix="/players", tags=["players"]) #creation route
 logger = logging.getLogger(__name__) # Récupère le logger configuré
+
+
+
+def calculate_player_stats(username: str, session: Session) -> PlayerStats:
+# Parties jouées
+    total_games = session.exec(
+        select(func.count())
+        .select_from(GameParticipation)
+        .where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+    ).one()
+
+    # Victoires
+    total_wins = session.exec(
+        select(func.count())
+        .select_from(GameParticipation)
+        .where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(GameParticipation.position == 1)
+    ).one()
+
+    win_rate = (total_wins / total_games * 100) if total_games > 0 else 0.0
+
+    # Lancers et Moyenne (PPD)
+    stats_lancers = session.exec(
+        select(
+            func.count(Throw.calculated_score),
+            func.avg(Throw.calculated_score)
+        )
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+    ).first()
+
+    total_throws = stats_lancers[0] if stats_lancers and stats_lancers[0] else 0
+    average_ppd = stats_lancers[1] if stats_lancers and stats_lancers[1] else 0.0
+
+    # Zone favorite
+    favorite_target_row = session.exec(
+        select(Throw.calculated_score, func.count(Throw.id).label("hits"))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(Throw.calculated_score > 0)
+        .group_by(Throw.calculated_score)
+        .order_by(desc("hits"))
+    ).first()
+    favorite_target = favorite_target_row[0] if favorite_target_row else None
+
+    # Les ratés (0 points)
+    total_misses = session.exec(
+        select(func.count(Throw.id))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(Throw.calculated_score == 0)
+    ).one()
+
+    # Triple 20
+    total_triple_20 = session.exec(
+        select(func.count(Throw.id))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(Throw.calculated_score == 20)
+        .where(Throw.multiplier == 3)
+    ).one()
+
+    # Scores par tour (180s et 100+)
+    scores_par_tour = session.exec(
+        select(
+            Throw.game_id, 
+            Throw.tour_number, 
+            func.sum(Throw.calculated_score * Throw.multiplier).label("tour_score")
+        )
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .group_by(Throw.game_id, Throw.tour_number)
+    ).all()
+
+    total_180s = sum(1 for tour in scores_par_tour if tour.tour_score == 180)
+    total_100_plus = sum(1 for tour in scores_par_tour if tour.tour_score >= 100 and tour.tour_score < 180)
+
+    # Zone maudite
+    cursed_target_row = session.exec(
+        select(Throw.calculated_score, func.count(Throw.id).label("hits"))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .where(Throw.calculated_score > 0)
+        .group_by(Throw.calculated_score)
+        .order_by(func.count(Throw.id).asc())
+    ).first()
+    cursed_target = cursed_target_row[0] if cursed_target_row else None    
+
+    # On retourne directement l'objet Pydantic rempli avec toutes les stats calculées
+    return PlayerStats(
+        total_games_played=total_games,
+        total_wins=total_wins,
+        win_rate_percentage=round(win_rate, 1),
+        average_points_per_dart=round(average_ppd, 2),
+        total_darts_thrown=total_throws,
+        favorite_target=favorite_target,
+        cursed_target=cursed_target,
+        total_misses=total_misses,
+        total_triple_20=total_triple_20,
+        total_180s=total_180s,
+        total_100_plus=total_100_plus        
+    )
+
+
 
 
 #Creer un joueur
@@ -227,22 +351,46 @@ def get_pending_invitations(
 
 
 
-# #Lire un player spécifique basé sur son username -> admin
-@router.get("/{username}", response_model=PlayerPublic)
+# #Lire un player spécifique basé sur son username -> admin ou ami ou lui meme
+@router.get("/{username}", response_model=PlayerProfile)
 def read_player(username: str,
                 session: Session = Depends(get_session),
                 current_user: Player = Depends(get_current_user)):
     
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=403, 
-            detail="Accès refusé. Seuls les administrateurs peuvent cherhcer un joueur basé sur son username."
-        )
-    
+   # Chercher le joueur
     player = session.get(Player, username)
     if not player:
-        raise HTTPException(status_code=404, detail=f"Player {username} not found")
-    return player
+        raise HTTPException(status_code=404, detail=f"Le joueur '{username}' n'existe pas.")
+
+    #Vérif les droits (Admin, Soi-même ou Ami)
+    is_me = (current_user.username == username)
+    is_admin = current_user.is_admin
+    
+    is_friend = session.exec(
+        select(Friendship).where(
+            (
+                ((Friendship.user_username == current_user.username) & (Friendship.friend_username == username)) |
+                ((Friendship.user_username == username) & (Friendship.friend_username == current_user.username))
+            ) &
+            (Friendship.status == FriendshipStatus.accepted)
+        )
+    ).first()
+
+    if not (is_admin or is_me or is_friend):
+        raise HTTPException(status_code=403, detail="Accès refusé. Vous devez être ami pour voir ce profil.")
+
+    # Calculer les stats du joueur
+    player_stats = calculate_player_stats(username, session) 
+
+    # transforme l'objet DB en dictionnaire pour manipuler les champs
+    profile_data = player.model_dump()
+    profile_data["stats"] = player_stats
+
+    # secu : On retire l'email si ce n'est pas l'admin ou soi-même
+    if not (is_admin or is_me):
+        profile_data["email"] = None 
+
+    return profile_data
 
 
 
@@ -253,131 +401,7 @@ def get_my_stats(
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
-    # calcul du nombre de parties jouées (validées)
-    total_games = session.exec(
-        select(func.count())
-        .select_from(GameParticipation)
-        .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)
-    ).one()
-
-    # Calcul du nombre de victoires (position 1)
-    total_wins = session.exec(
-        select(func.count())
-        .select_from(GameParticipation)
-        .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)
-        .where(GameParticipation.position == 1)
-    ).one()
-
-    # Pourcentage de victoire (calculé en Python)
-    win_rate = (total_wins / total_games * 100) if total_games > 0 else 0.0
-
-    # jointure pour calculer les lancers et la moyenne (PPD)
-
-    stats_lancers = session.exec(
-        select(
-            func.count(Throw.calculated_score), # Nombre de lancers
-            func.avg(Throw.calculated_score)    # Moyenne des points par lancer
-        )
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)
-    ).first()
-
-    # On récupère les résultats renvoyés par la base de données (sécurité si c'est vide)
-    total_throws = stats_lancers[0] if stats_lancers and stats_lancers[0] else 0
-    average_ppd = stats_lancers[1] if stats_lancers and stats_lancers[1] else 0.0
-
-    # On groupe par points calculés (20, 19, etc.), on compte, et on prend le 1er (le point le plus touche)
-    favorite_target_row = session.exec(
-        select(Throw.calculated_score, func.count(Throw.id).label("hits"))
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)
-        .where(Throw.calculated_score > 0) # On ignore les ratés pour la zone favorite
-        .group_by(Throw.calculated_score)
-        .order_by(desc("hits"))
-    ).first()
-    
-    favorite_target = favorite_target_row[0] if favorite_target_row else None
-
-    # rates
-    total_misses = session.exec(
-        select(func.count(Throw.id))
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)
-        .where(Throw.calculated_score == 0) # La fléchette n'a rien touché
-    ).one()
-
-    #T20
-    total_triple_20 = session.exec(
-        select(func.count(Throw.id))
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)
-        .where(Throw.calculated_score == 20)
-        .where(Throw.multiplier == 3) # (Score de 20 x 3 = 60)
-    ).one()
-    
-    
-    # Calcul des scores par TOUR (Tour complet de 3 fléchettes)
-    scores_par_tour = session.exec(
-        select(
-            Throw.game_id, 
-            Throw.tour_number, 
-            func.sum(Throw.calculated_score * Throw.multiplier).label("tour_score")
-        )
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)
-        .group_by(Throw.game_id, Throw.tour_number)
-    ).all()
-
-    total_180s = sum(1 for tour in scores_par_tour if tour.tour_score == 180)
-    total_100_plus = sum(1 for tour in scores_par_tour if tour.tour_score >= 100 and tour.tour_score < 180)
-    
-    # groupe par points, on compte, et on prend le plus petit nombre de touché (-zone la moins touchee)
-    #attention que ca prendra la zone la moins touchee mais pas celle jamais touchee (si par ex
-    # il n'a jamais touche le 2 ca n'affichera pas 2 mais la zone qu'il a touche le moins parmi celles qu'il a touche)
-    cursed_target_row = session.exec(
-        select(Throw.calculated_score, func.count(Throw.id).label("hits"))
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == current_user.username)
-        .where(GameParticipation.status == ValidationStatus.validated)
-        .where(Throw.calculated_score > 0) # ignore les "0" (les ratés complets)
-        .group_by(Throw.calculated_score)
-        .order_by(func.count(Throw.id).asc())
-    ).first()
-    
-    cursed_target = cursed_target_row[0] if cursed_target_row else None    
-    
-    return PlayerStats(
-        total_games_played=total_games,
-        total_wins=total_wins,
-        win_rate_percentage=round(win_rate, 1),
-        average_points_per_dart=round(average_ppd, 2),
-        total_darts_thrown=total_throws,
-        favorite_target=favorite_target,
-        cursed_target=cursed_target,
-        total_misses=total_misses,
-        total_triple_20=total_triple_20,
-        total_180s=total_180s,
-        total_100_plus=total_100_plus        
-    )
+    return calculate_player_stats(current_user.username, session)
     
     
     
