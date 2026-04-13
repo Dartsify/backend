@@ -102,7 +102,7 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
             active_game.status = GameStatus.finished # force la fin de la partie
             
             active_game.end_date = datetime.utcnow() # enregistre la fin de la partie
-            trigger_led_script("unused.py") #lance l'animation de libération de la cible sur le Raspberry Pi
+            trigger_led_script("unused") #lance l'animation de libération de la cible sur le Raspberry Pi
             
             session.add(active_game)
             session.commit()

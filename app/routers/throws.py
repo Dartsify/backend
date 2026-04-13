@@ -96,7 +96,7 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
         if nouveau_score < 0 or nouveau_score == 1 or (nouveau_score == 0 and multiplicateur != 2):
             is_bust = True
             
-            trigger_led_script("bust.py") #lance l'animation de bust sur le Raspberry Pi
+            trigger_led_script("bust") #lance l'animation de bust sur le Raspberry Pi
             
             # Annulation des points
             previous_throws = session.exec(
@@ -108,7 +108,7 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
         elif nouveau_score == 0 and multiplicateur == 2:
             is_victory = True
             
-            trigger_led_script("win.py") #lance l'animation de victoire sur le Raspberry Pi
+            trigger_led_script("win") #lance l'animation de victoire sur le Raspberry Pi
 
             
             participation.current_score = 0

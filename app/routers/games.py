@@ -455,7 +455,7 @@ async def launch_game(
     # fige l'heure exacte du début de la partie
     game.start_date = datetime.utcnow()
     
-    trigger_led_script("blanc.py") #lance l'animation de lancement sur le Raspberry Pi
+    trigger_led_script("blanc") #lance l'animation de lancement sur le Raspberry Pi
     
     #chrono reinitialise
     game.last_interaction = datetime.utcnow()
@@ -549,7 +549,7 @@ async def join_game(
     session.add(game)
     session.commit()
     
-    trigger_led_script("join.py") #lance l'animation de bienvenue sur le Raspberry Pi
+    trigger_led_script("join") #lance l'animation de bienvenue sur le Raspberry Pi
 
     logger.info(f"{display_name} a rejoint la partie {game.id}.")
     
@@ -783,7 +783,7 @@ async def leave_game(
         game.status = GameStatus.finished
         
         game.end_date = datetime.utcnow() # Fin prématurée de la partie
-        trigger_led_script("unused.py") #lance l'animation de libération de la cible sur le Raspberry Pi
+        trigger_led_script("unused") #lance l'animation de libération de la cible sur le Raspberry Pi
         
         session.add(game)
         session.commit()
