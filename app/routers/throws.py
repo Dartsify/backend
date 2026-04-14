@@ -19,7 +19,7 @@ from app.security.auth import get_current_user
 from app.utils.darts_logic import get_checkout_suggestion
 from app.utils.dartboard_math import get_score_and_multiplier
 from app.utils.led_controller import trigger_led_script # pour lancer les animations LED sur le Raspberry Pi après un bust ou une victoire
-from app.stream import stream_manager # pour envoyer les notifications SSE aux téléphones après chaque lancer
+from app.stream import stream_manager, broadcast_game_update # pour envoyer les notifications SSE aux téléphones après chaque lancer
 
 
 router = APIRouter(prefix="/throws", tags=["throws (Register only for Raspberry Pi)"])
@@ -221,58 +221,8 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
     session.commit()
     session.refresh(db_throw)
     
-    # SSE
-    # On prévient tous les téléphones (appareils) qui écoutent cette partie qu'il faut rafraîchir 
-    # On doit 'await' car la fonction broadcast est asynchrone. 
-    # prépare le dictionnaire complet de la partie (comme dans la route GET /games/{id})
-    game_dict = game.model_dump()
-    
-    #ajout des infos sur la cible
-    target = session.get(Target, game.target_id)
-    if target:
-        game_dict["target_name"] = target.name
-        game_dict["target_location"] = target.location
-    else:
-        game_dict["target_name"] = "Cible inconnue"
-        game_dict["target_location"] = "Lieu inconnu"
-    
-    #idd de l'hote
-    host_username = game.current_player_username if game.status == GameStatus.waiting else game.participations[0].player_username
-    
-    participations_enrichies = []
-    
-    for p in game.participations:
-        p_dict = p.model_dump()
-        # On ajoute le nom
-        p_dict["player_name"] = p.player.name if p.player else "Joueur inconnu"
-        
-        # ajout l'indicateur is_host pour ne pas le perdre côté Front 
-        p_dict["is_host"] = (p.player_username == host_username)
-        
-        # calcul cmb de fléchettes il lui reste (3 max)
-        darts_left = 4 - game.current_dart_number # si le tour 1 est en cours, current_dart_number = 1 donc darts_left = 3, etc.
-        
-        # On ajoute les suggestions
-        if game.mode in ["501", "301"]:
-            p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score, darts_left)
-        else:
-            p_dict["checkout_suggestion"] = []
-        
-        participations_enrichies.append(p_dict)
-
-    game_dict["participations"] = participations_enrichies
-
-    # On met TOUT l'objet dans le message SSE 
-    update_message = json.dumps({
-        "event": "GAME_UPDATED",
-        "game_state": game_dict  #Le front reçoit tout d'un coup 
-    })
-    
-    # await libère le serveur pour qu'il gère d'autres requêtes pendant qu'il envoie
-    # ce message reseau à tous les téléphones connectés. Il attend d'avoir fini avant
-    # de renvoyer la réponse finale au Raspberry Pi
-    await stream_manager.broadcast(game.id, update_message) 
-
+    # SSE : Un seul appel propre 
+    await broadcast_game_update(game.id, session)
     return db_throw
 
 

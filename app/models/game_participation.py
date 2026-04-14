@@ -45,6 +45,8 @@ class GameParticipationRead(SQLModel):
     
     is_friend: bool =False #pour dire si le joueur est ami ou pas avec celui qui regarde (utile pour le front)
     current_average: float = 0.0 #pour afficher la moyenne actuelle du joueur dans la partie 
+    
+    last_3_points: list[dict] = [] #pour afficher les points des 3 derniers lancers du joueur dans la partie 
 
 from app.models.game import GameRead
 # Le modèle complet de la partie AVEC ses joueurs
@@ -53,6 +55,10 @@ class GameReadWithParticipants(GameRead):
     #on ajoute le nom et lieu de cible pour le front
     target_name: Optional[str] = None
     target_location: Optional[str] = None
+    
+    current_player_username: str | None = None
+    current_turn_number: int
+    current_dart_number: int
     
     # Et on lui ajoute la liste des participants 
     participations: List[GameParticipationRead] = []

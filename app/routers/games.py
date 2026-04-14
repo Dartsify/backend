@@ -23,7 +23,10 @@ from app.models.throw import Throw
 from app.security.auth import get_current_user, get_current_user_optional, create_access_token
 from app.utils.darts_logic import get_checkout_suggestion
 from app.utils.led_controller import trigger_led_script
+from app.utils.game_state import build_base_game_state
 from app.stream import stream_manager
+
+from app.stream import broadcast_game_update 
 
 #config du router et du logger
 router = APIRouter(prefix="/games", tags=["games"])
@@ -178,13 +181,7 @@ async def add_players_to_game(
         logger.info(f"Les joueurs {added_players} ont été ajoutés à la partie {game.id} par {current_user.username}.")
         
         # SSE
-        full_game_state = get_game_state(game_id, session, current_user)
-        safe_game_state = jsonable_encoder(full_game_state)
-        update_message = json.dumps({
-            "event": "GAME_UPDATED",
-            "game_state": safe_game_state
-        })
-        await stream_manager.broadcast(game_id, update_message)
+        await broadcast_game_update(game_id, session)
     
     return {
         "message": f"{len(added_players)} ami(s) a/ont rejoint la partie avec succès !",
@@ -247,113 +244,31 @@ def reject_participation(
 #Route pour voir lobby (voir quels joueurs sont la pour debut de partie)
 #on initialise donc la partie ici
 #Pour la modif des scores et le jeu il faut aller dans app.routers.throws)
-@router.get("/{game_id}", response_model=GameReadWithParticipants,response_model_exclude={"id"} )
+@router.get("/{game_id}", response_model=GameReadWithParticipants, response_model_exclude={"id"})
 def get_game_state(
     game_id: int,
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)): # Il faut être connecté
+    current_user: Player = Depends(get_current_user)):
 
-    # On récupère la partie
-    game = session.get(Game, game_id)
-    if not game:
+    # On récupère la base commune
+    game_dict = build_base_game_state(game_id, session)
+    if not game_dict:
         raise HTTPException(status_code=404, detail="Partie introuvable.")
 
-    #verif si joueur fait partie de la partie (securite) (a enlever si affichage sur un autre ecran par ex)
-    is_participant = any(p.player_username == current_user.username for p in game.participations)
-    if not is_participant and not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Vous ne participez pas à cette partie.")
-    
-    # transforme l'objet db "game" en un simple dictionnaire
-    game_dict = game.model_dump()
-    
-    #recup les infos de cible
-    target = session.get(Target, game.target_id)
-    if target:
-        game_dict["target_name"] = target.name
-        game_dict["target_location"] = target.location
-    else:
-        game_dict["target_name"] = "Cible inconnue"
-        game_dict["target_location"] = "Lieu inconnu"
-    
-    # Quand la partie est en 'waiting', l'hôte est toujours stocké dans current_player_username.
-    # Si la partie a commencé, on prend par défaut le premier joueur de la liste (le créateur).
-    host_username = game.current_player_username if game.status == GameStatus.waiting else game.participations[0].player_username
-    
-    # recréer la liste des participants avec suggestions
-    participations_enrichies = []
-    
-    for p in game.participations:
-        # transforme la ligne du participant en dictionnaire
-        p_dict = p.model_dump()
-        
-        #partie pour calculer le averge point par fleche en temps reel
-        #compte combien de fléchettes ce joueur a lancé dans cett partie
-        darts_thrown = session.exec(
-            select(func.count(Throw.id))
-            .where(Throw.game_id == game.id)
-            .where(Throw.player_username == p.player_username)
-        ).one()
-
-        #calcul moyenne (PPD) s'il a lancé au moins 1 fléchette
-        if darts_thrown > 0:
-            if game.mode in ["501", "301"]:
-                starting_score = 501 if game.mode == "501" else 301
-                points_scored = starting_score - p.current_score
-                p_dict["current_average"] = round(points_scored / darts_thrown, 2)
-            else: 
-                # Mode perso (le score monte)
-                p_dict["current_average"] = round(p.current_score / darts_thrown, 2)
-        else:
-            p_dict["current_average"] = 0.0
-        
-        
-        # Grâce à la relation Relationship -> chercher le profil du joueur
-        if p.player:
-            p_dict["player_name"] = p.player.name # affiche le nom du joueur pour le front
-        else:
-            p_dict["player_name"] = "Joueur inconnu"
-            
-        p_dict["is_host"] = (p.player_username == host_username)
-        
-        #verif si amitie (pour front)
-        # affiche pas le bouton "ami" pour soi-même
-        if p.player_username == current_user.username:
+    # On ajoute la personnalisation "is_friend" (car on sait qui regarde ici)
+    for p_dict in game_dict["participations"]:
+        if p_dict["player_username"] == current_user.username:
             p_dict["is_friend"] = False
-            
-        # profil "guest" ne peut pas être un ami
-        elif p.player and getattr(p.player, "is_guest", False):
-            p_dict["is_friend"] = False
-            
-        # sinon, on cherche dans la table Friendship
         else:
             is_friend_db = session.exec(
                 select(Friendship).where(
-                    (
-                        ((Friendship.user_username == current_user.username) & (Friendship.friend_username == p.player_username)) |
-                        ((Friendship.user_username == p.player_username) & (Friendship.friend_username == current_user.username))
-                    ) & 
+                    (((Friendship.user_username == current_user.username) & (Friendship.friend_username == p_dict["player_username"])) |
+                    ((Friendship.user_username == p_dict["player_username"]) & (Friendship.friend_username == current_user.username))) &
                     (Friendship.status == FriendshipStatus.accepted)
                 )
             ).first()
             p_dict["is_friend"] = True if is_friend_db else False
-        
-        if game.status == GameStatus.waiting:
-            darts_left = 3
-        else:
-            darts_left = 4 - game.current_dart_number # si le tour 1 est en cours, current_dart_number = 1 donc darts_left = 3, etc.
-        
-        # ajout de suggestion calculée
-        if game.mode in ["501", "301"]:
-            p_dict["checkout_suggestion"] = get_checkout_suggestion(p.current_score, darts_left)
-        else:
-            p_dict["checkout_suggestion"] = [] # Pas de suggestion pour le mode perso
-        
-        participations_enrichies.append(p_dict)
 
-    #remplace la vieille liste de base de données par notre nouvelle liste enrichie
-    game_dict["participations"] = participations_enrichies
-
-    # FastAPI va lire 'response_model=GameReadWithParticipants' et s'occuper du formatage final
     return game_dict
 
 
@@ -471,15 +386,7 @@ async def launch_game(
     logger.info(f"La partie {game.id} passe en IN_PROGRESS ! Que le meilleur gagne.")
     
     #ajout avec async pour update en temps reel dans le lobby :
-    full_game_state = get_game_state(game_id, session, current_user)
-    safe_game_state = jsonable_encoder(full_game_state)
-
-    update_message = json.dumps({
-        "event": "GAME_UPDATED",
-        "game_state": safe_game_state
-    })
-    await stream_manager.broadcast(game_id, update_message)
-    
+    await broadcast_game_update(game_id, session)
     
     return game
 
@@ -561,17 +468,9 @@ async def join_game(
     #détermine qui est joueur pour requête (le current_user ou notre nouveau guest)
     user_for_state = current_user if current_user else db_guest
     
-    #appelfonction pour récupérer l'état parfait de la partie 
-    full_game_state = get_game_state(game.id, session, user_for_state)
-    
-    safe_game_state = jsonable_encoder(full_game_state)
 
     #  crie dans"le mégaphone"pour tous ceux qui sont dans le lobby
-    update_message = json.dumps({
-        "event": "GAME_UPDATED",
-        "game_state": safe_game_state
-    })
-    await stream_manager.broadcast(game.id, update_message)
+    await broadcast_game_update(game_id, session)
     
     
     reponse_front = {
@@ -644,14 +543,8 @@ async def kick_player_from_game(
     logger.info(f"Le joueur {username_to_remove} a été expulsé de la partie {game_id} par l'hôte {current_user.username}.")
     
     #ajout avec le async:
-    full_game_state = get_game_state(game_id, session, current_user)
-    safe_game_state = jsonable_encoder(full_game_state)
-
-    update_message = json.dumps({
-        "event": "GAME_UPDATED",
-        "game_state": safe_game_state
-    })
-    await stream_manager.broadcast(game_id, update_message)
+    # SSE : Un seul appel propre
+    await broadcast_game_update(game_id, session)
     
     return {"message": f"Le joueur a été expulsé avec succès de la partie."}
 
@@ -711,14 +604,8 @@ async def change_game_mode(
     logger.info(f"L'hôte {current_user.username} a changé le mode de la partie {game.id} en {game.mode}.")
     
     #ajout avec le async pour update en temps reel dans le lobby :
-    full_game_state = get_game_state(game_id, session, current_user)
-    safe_game_state = jsonable_encoder(full_game_state)
-
-    update_message = json.dumps({
-        "event": "GAME_UPDATED",
-        "game_state": safe_game_state
-    })
-    await stream_manager.broadcast(game_id, update_message)
+    # SSE : Un seul appel propre
+    await broadcast_game_update(game_id, session)
     
     
     return {
@@ -797,13 +684,8 @@ async def leave_game(
         logger.info(f"L'hôte {current_user.username} a quitté. La partie {game_id} est clôturée.")
         
         # previens tous via le SSE que la partie est finie
-        full_game_state = get_game_state(game_id, session, current_user)
-        safe_game_state = jsonable_encoder(full_game_state)
-        update_message = json.dumps({
-            "event": "GAME_UPDATED",
-            "game_state": safe_game_state
-        })
-        await stream_manager.broadcast(game_id, update_message)
+        # SSE : Un seul appel propre
+        await broadcast_game_update(game_id, session)
         
         trigger_led_script("unused") #lance l'animation de libération de la cible sur le Raspberry Pi
         
@@ -822,16 +704,9 @@ async def leave_game(
         # Comme on vient de se supprimer de la partie, si on appelle get_game_state avec 'current_user',
         # notre propre sécurité va nous renvoyer une erreur 403 (Accès Refusé) car on n'est plus dans la partie.
         # On utilise donc le profil de l'hôte (qui est toujours là) pour générer l'état de la partie.
-        host_player = session.get(Player, host_username)
-        full_game_state = get_game_state(game_id, session, host_player)
         
-        safe_game_state = jsonable_encoder(full_game_state)
-        update_message = json.dumps({
-            "event": "GAME_UPDATED",
-            "game_state": safe_game_state
-        })
-        await stream_manager.broadcast(game_id, update_message)
-        
+        await broadcast_game_update(game_id, session)
+                
         return {"message": "Vous avez quitté la partie avec succès."}
 
 
@@ -912,13 +787,7 @@ async def add_guests_to_game(
         logger.info(f"Les invités {added_guests} ont été ajoutés à la partie {game.id} par {current_user.username}.")
         
         #SSE
-        full_game_state = get_game_state(game_id, session, current_user)
-        safe_game_state = jsonable_encoder(full_game_state)
-        update_message = json.dumps({
-            "event": "GAME_UPDATED",
-            "game_state": safe_game_state
-        })
-        await stream_manager.broadcast(game_id, update_message)
+        await broadcast_game_update(game_id, session)
     
     return {
         "message": f"{len(added_guests)} invité(s) ajouté(s) avec succès !",

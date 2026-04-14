@@ -1,6 +1,12 @@
 import asyncio
 from typing import Dict, List
 
+import json
+from sqlmodel import Session
+from app.utils.game_state import build_base_game_state
+
+from fastapi.encoders import jsonable_encoder
+
 class GameStreamManager:
     def __init__(self):
         # Un dictionnaire qui associe un ID de partie à une liste de "boîtes aux lettres" (files d'attente)
@@ -32,3 +38,19 @@ class GameStreamManager:
 
 # On crée notre facteur unique pour toute l'application
 stream_manager = GameStreamManager()
+
+
+
+#Construit l'état complet de la partie et le broadcast via SSE.
+async def broadcast_game_update(game_id: int, session: Session):
+    
+    full_state = build_base_game_state(game_id, session)
+    
+    safe_state = jsonable_encoder(full_state) #pour convertir les datetime et autres types non JSON-serializable
+    
+    update_message = json.dumps({
+        "event": "GAME_UPDATED",
+        "game_state": safe_state
+    })
+    
+    await stream_manager.broadcast(game_id, update_message)
