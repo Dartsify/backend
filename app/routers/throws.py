@@ -147,6 +147,25 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
         multiplier=multiplicateur
     )
     session.add(db_throw)
+    
+    #gestion des animations led pour 100+, 180 et next player
+    if not is_victory and not is_bust:
+        if flechette_actuelle == 3:
+            # récup les lancers précédents de ce tour pour calculer le total
+            previous_throws = session.exec(
+                select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)
+            ).all()
+            
+            # Le score total du tour = la somme des lancers précédents + le lancer actuel
+            tour_score = sum(t.calculated_score for t in previous_throws) + points
+            
+            if tour_score == 180:
+                trigger_led_script("score_180")
+            elif tour_score >= 100:
+                trigger_led_script("score_100")
+            else:
+                trigger_led_script("next_player")
+
 
     #intelligence du tour
     if not is_victory:

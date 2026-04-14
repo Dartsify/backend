@@ -95,6 +95,8 @@ def create_new_game(
     )
     session.add(participation)
     session.commit()
+    
+    trigger_led_script("lobby")#lance l'animation de salle d'attente (lobby) sur le Raspberry Pi
 
     logger.info(f"Partie {new_game.id} créée avec succès. {current_user.username} a rejoint la partie.")
     return new_game
@@ -171,6 +173,8 @@ async def add_players_to_game(
         game.last_interaction = datetime.utcnow()
         session.add(game)
         session.commit()
+        
+        trigger_led_script("player_join") #lance l'animation de bienvenue sur le Raspberry Pi pour signaler que des joueurs ont rejoint la partie
         logger.info(f"Les joueurs {added_players} ont été ajoutés à la partie {game.id} par {current_user.username}.")
         
         # SSE
@@ -238,8 +242,8 @@ def reject_participation(
 
 
 
-    
- 
+
+
 #Route pour voir lobby (voir quels joueurs sont la pour debut de partie)
 #on initialise donc la partie ici
 #Pour la modif des scores et le jeu il faut aller dans app.routers.throws)
@@ -455,7 +459,7 @@ async def launch_game(
     # fige l'heure exacte du début de la partie
     game.start_date = datetime.utcnow()
     
-    trigger_led_script("blanc") #lance l'animation de lancement sur le Raspberry Pi
+    trigger_led_script("start_round") #lance l'animation de lancement sur le Raspberry Pi
     
     #chrono reinitialise
     game.last_interaction = datetime.utcnow()
@@ -549,7 +553,7 @@ async def join_game(
     session.add(game)
     session.commit()
     
-    trigger_led_script("join") #lance l'animation de bienvenue sur le Raspberry Pi
+    trigger_led_script("player_join") #lance l'animation de bienvenue sur le Raspberry Pi
 
     logger.info(f"{display_name} a rejoint la partie {game.id}.")
     
@@ -634,6 +638,8 @@ async def kick_player_from_game(
 
     session.delete(participation)
     session.commit()
+    
+    trigger_led_script("player_leave")
 
     logger.info(f"Le joueur {username_to_remove} a été expulsé de la partie {game_id} par l'hôte {current_user.username}.")
     
@@ -798,6 +804,8 @@ async def leave_game(
             "game_state": safe_game_state
         })
         await stream_manager.broadcast(game_id, update_message)
+        
+        trigger_led_script("unused") #lance l'animation de libération de la cible sur le Raspberry Pi
         
         return {"message": "Vous avez quitté la partie. En tant qu'hôte, la salle a été fermée."}
         
