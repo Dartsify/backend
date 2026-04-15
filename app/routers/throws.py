@@ -172,8 +172,11 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
         fin_de_tour = is_bust or (flechette_actuelle == 3)
 
         if fin_de_tour:
-            # ne prend QUE les joueurs validés(non pending)
-            participants_actifs = [p for p in game.participations if p.status == ValidationStatus.validated]
+            #prendre que les joueurs validés
+            participants_actifs = [p for p in game.participations if p.status != ValidationStatus.rejected]
+            
+            # tri chronologique
+            participants_actifs = sorted(participants_actifs, key=lambda p: p.join_date)
             
             current_idx = next(i for i, p in enumerate(participants_actifs) if p.player_username == joueur_actuel)
             next_idx = current_idx + 1
@@ -225,21 +228,33 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
     await broadcast_game_update(game.id, session)
     return db_throw
 
-
-
+from pydantic import BaseModel
+#crée un modèle spécifique pour ce que le Raspberry va envoyer
+class HardwareThrowPayload(BaseModel):
+    target_id: str
+    x_position: float
+    y_position: float
 
 #Routes
 #enregistrer un lancer de flechette
 @router.post("/", response_model=ThrowRead) 
 async def register_throw(
-    throw_in: ThrowCreate,
+    throw_in: HardwareThrowPayload,
     session: Session = Depends(get_session),
     is_hardware_authorized: bool = Depends(verify_raspberry_pi)):
     
-    # recup la partie
-    game = session.get(Game, throw_in.game_id)
-    if not game or game.status != GameStatus.in_progress:
-        raise HTTPException(status_code=400, detail="Partie introuvable ou terminée.")
+    #new logique
+    #recherche multi cible (si bar a plusieurs cibles)
+    # On cherche la partie en cours SUR LA CIBLE qui vient d'envoyer le message
+    game = session.exec(
+        select(Game)
+        .where(Game.target_id == throw_in.target_id) # Filtre par cible
+        .where(Game.status == GameStatus.in_progress) # Filtre par statut
+    ).first()
+
+    if not game:
+        logger.warning(f"Une fléchette a touché la cible {throw_in.target_id}, mais aucune partie n'est en cours !")
+        raise HTTPException(status_code=400, detail="Aucune partie en cours sur cette cible.")
 
     # deduction de qui doit jouer
     joueur_actuel = game.current_player_username

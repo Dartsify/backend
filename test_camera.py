@@ -7,8 +7,8 @@ API_URL = "http://127.0.0.1:8000/throws/"
 API_KEY = RASPBERRY_API_KEY
 
 payload = {
-    "game_id": 4,
-    "x_position": 582.0,  #simuler tirs
+    "target_id": "000002",  
+    "x_position": 650.0,  #simuler tirs
     "y_position": 600.0
 }
 

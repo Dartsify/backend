@@ -100,13 +100,14 @@ class PlayerStats(BaseModel):
     average_points_per_dart: float
     total_darts_thrown: int
     
-    favorite_target: Optional[int] = None  # La zone la plus touchée (ex: 20)
+    favorite_targets: List[int] = []  # Les 3 zone las plus touchée (ex: 20)
     total_misses: int = 0                  
     total_triple_20: int = 0      
     total_180s: int = 0
     total_100_plus: int = 0 # Nombre de fois où le joueur a fait 100 points ou plus en un tour (3 fléchettes)         
-    cursed_target: Optional[int] = None # La zone la moins visée 
-    
+    cursed_target: Optional[str] = None # La zone la moins visée 
+
+
 #Modele pour changer le mot de passe
 class PasswordUpdate(BaseModel):
     old_password: str
@@ -158,3 +159,14 @@ class FriendResponse(PlayerPublic):
 class PlayerProfile(PlayerPublic):
     # On inclut les stats directement dans le profil
     stats: Optional[PlayerStats] = None
+    
+    
+    
+# Modèle pour une seule barre du graphique
+class HitData(BaseModel):
+    zone: str  # Ex: "T20", "Bullseye", "19"
+    hits: int  # Ex: 45
+
+# Modèle de réponse finale qui contient la liste
+class ZoneStatsResponse(BaseModel):
+    hit_distribution: List[HitData]

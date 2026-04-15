@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Dict
 from enum import Enum
+from datetime import datetime
 
 if TYPE_CHECKING:
     from app.models.game import Game
@@ -11,7 +12,7 @@ class ValidationStatus(str, Enum):
     pending = "pending" #stand by, partie a ete jouee et en attente de validation
     validated ="validated" #stats sont comptabilisees pour joueur
     rejected = "rejected" #pas lui donc on compte pas les stats
-     
+    
 
 class GameParticipation(SQLModel, table=True):
     #id: Optional[int] = Field(default=None, primary_key=True)
@@ -19,13 +20,14 @@ class GameParticipation(SQLModel, table=True):
     player_username: str = Field(foreign_key="player.username", primary_key=True)
     
     current_score: int = Field(default=0) #permet d'avoir le score en direct du joueur
-    
     final_score: Optional[int] = None
     position: Optional[int] = None #position du joueur au classement (optionnel a mon avis)
 
     #Par defaut quand on invite qqun, c'est en stand by mais l'hote de la partie sera mis en validated d'office
     status: ValidationStatus = Field(default=ValidationStatus.pending)
 
+    join_date: datetime = Field(default_factory=datetime.utcnow) # L'heure exacte où il rejoint
+    
     # Relations ORM (facultative mais pourrait servir pour naviguer)
     player: Optional["Player"] = Relationship(back_populates="participations")
     game: Optional["Game"] = Relationship(back_populates="participations")
@@ -62,3 +64,5 @@ class GameReadWithParticipants(GameRead):
     
     # Et on lui ajoute la liste des participants 
     participations: List[GameParticipationRead] = []
+    
+    board_hits: Dict[str, List[Dict[str, float]]] = {"current_player": [], "others": []}

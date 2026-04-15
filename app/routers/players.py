@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select, func, desc
 from app.database import get_session
 
-from app.models.player import Player, PlayerCreate, PlayerRead, PlayerUpdate, PlayerPublic, PlayerStats, PasswordUpdate, Friendship, FriendshipStatus
+from app.models.player import Player, PlayerCreate, PlayerRead, PlayerUpdate, PlayerPublic, PlayerStats, PasswordUpdate, Friendship, FriendshipStatus, HitData, ZoneStatsResponse
 from app.models.player import FriendRequestResponse, FriendResponse, PlayerProfile
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
@@ -59,20 +59,38 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
     total_throws = stats_lancers[0] if stats_lancers and stats_lancers[0] else 0
     average_ppd = stats_lancers[1] if stats_lancers and stats_lancers[1] else 0.0
 
-    # Zone favorite
-    favorite_target_row = session.exec(
-        select(Throw.calculated_score, func.count(Throw.id).label("hits"))
+    # 3 Zones favorites (dans l'ordre) en tenant compte du multiplicateur
+    favorite_targets_rows = session.exec(
+        select(Throw.calculated_score, Throw.multiplier, func.count(Throw.id).label("hits"))
         .join(GameParticipation, 
               (Throw.game_id == GameParticipation.game_id) & 
               (Throw.player_username == GameParticipation.player_username))
         .where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(Throw.calculated_score > 0)
-        .group_by(Throw.calculated_score)
+        .group_by(Throw.calculated_score, Throw.multiplier) 
         .order_by(desc("hits"))
-    ).first()
-    favorite_target = favorite_target_row[0] if favorite_target_row else None
+        .limit(3)
+    ).all()
 
+    # On transforme ça en labels pour Mathias (ex: ["T20", "D16", "20"])
+    favorite_targets = []
+    for row in favorite_targets_rows:
+        score = row[0]
+        mult = row[1]
+        
+        if score == 25:
+            label = "Double Bullseye" if mult == 2 else "Bullseye"
+        else:
+            if mult == 3:
+                label = f"T{score}"
+            elif mult == 2:
+                label = f"D{score}"
+            else:
+                label = f"{score}" # Simple
+                
+        favorite_targets.append(label)
+    
     # Les ratés (0 points)
     total_misses = session.exec(
         select(func.count(Throw.id))
@@ -116,18 +134,32 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
 
     # Zone maudite
     cursed_target_row = session.exec(
-        select(Throw.calculated_score, func.count(Throw.id).label("hits"))
+        select(Throw.calculated_score, Throw.multiplier, func.count(Throw.id).label("hits"))
         .join(GameParticipation, 
               (Throw.game_id == GameParticipation.game_id) & 
               (Throw.player_username == GameParticipation.player_username))
         .where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(Throw.calculated_score > 0)
-        .group_by(Throw.calculated_score)
+        .group_by(Throw.calculated_score, Throw.multiplier) # <-- On groupe par les DEUX !
         .order_by(func.count(Throw.id).asc())
     ).first()
-    cursed_target = cursed_target_row[0] if cursed_target_row else None    
-
+    
+    cursed_target = None
+    if cursed_target_row:
+        score = cursed_target_row[0]
+        mult = cursed_target_row[1]
+        if score == 25:
+            cursed_target = "Double Bullseye" if mult == 2 else "Bullseye"
+        else:
+            if mult == 3:
+                cursed_target = f"T{score}"
+            elif mult == 2:
+                cursed_target = f"D{score}"
+            else:
+                cursed_target = f"{score}"
+            
+    
     # On retourne directement l'objet Pydantic rempli avec toutes les stats calculées
     return PlayerStats(
         total_games_played=total_games,
@@ -135,7 +167,7 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
         win_rate_percentage=round(win_rate, 1),
         average_points_per_dart=round(average_ppd, 2),
         total_darts_thrown=total_throws,
-        favorite_target=favorite_target,
+        favorite_target=favorite_targets,
         cursed_target=cursed_target,
         total_misses=total_misses,
         total_triple_20=total_triple_20,
@@ -357,7 +389,7 @@ def read_player(username: str,
                 session: Session = Depends(get_session),
                 current_user: Player = Depends(get_current_user)):
     
-   # Chercher le joueur
+    # Chercher le joueur
     player = session.get(Player, username)
     if not player:
         raise HTTPException(status_code=404, detail=f"Le joueur '{username}' n'existe pas.")
@@ -405,6 +437,51 @@ def get_my_stats(
     
     
     
+
+# Récupère la distribution complète de toutes les fléchettes lancées par le joueur
+# -> pour générer un graphique en bâtons côté Front-end
+@router.get("/me/zones_stats", response_model=ZoneStatsResponse)
+def get_my_zones_stats(
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # groupe par score ET par multiplicateur
+    hit_distribution_rows = session.exec(
+        select(Throw.calculated_score, Throw.multiplier, func.count(Throw.id).label("hits"))
+        .join(GameParticipation, 
+              (Throw.game_id == GameParticipation.game_id) & 
+              (Throw.player_username == GameParticipation.player_username))
+        .where(GameParticipation.player_username == current_user.username) # filtre ce joueur
+        .where(GameParticipation.status == ValidationStatus.validated)     # Uniquement les parties validées
+        .group_by(Throw.calculated_score, Throw.multiplier)
+        .order_by(desc("hits")) # Trie de la zone la plus touchée à la moins touchée
+    ).all()
+
+    hit_distribution = []
+    
+    for row in hit_distribution_rows:
+        score = row[0]
+        mult = row[1]
+        hits = row[2]
+
+        if score == 0:
+            label = "Miss"
+        elif score == 25:
+            label = "Double Bullseye" if mult == 2 else "Bullseye"
+        else:
+            if mult == 3:
+                label = f"T{score}"
+            elif mult == 2:
+                label = f"D{score}"
+            else:
+                label = f"{score}"
+
+        hit_distribution.append(HitData(zone=label, hits=hits))
+
+    return ZoneStatsResponse(hit_distribution=hit_distribution)
+
+
+
 
 #modele pour la heatmap (coordonnées X et Y des lancers)
 class Coordinate(BaseModel):

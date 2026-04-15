@@ -23,18 +23,25 @@ def build_base_game_state(game_id: int, session: Session) -> dict:
     else:
         game_dict["target_name"] = "Cible inconnue"
         game_dict["target_location"] = "Lieu inconnu"
+        
+    # trie les joueurs par date d'arrivée
+    participants_chronologiques = sorted(game.participations, key=lambda p: p.join_date)
 
-    # Hôte de la partie
-    host_username = game.current_player_username if game.status == GameStatus.waiting else game.participations[0].player_username
+    # L'Hôte est tjs le premier joueur de cette liste triée 
+    if participants_chronologiques:
+        host_username = participants_chronologiques[0].player_username
+    else:
+        host_username = None
 
     participations_enrichies = []
 
-    for p in game.participations:
+    # On boucle sur la liste triee pour construire les données de chaque participant dans l'ordre d'arrivée (pour le front)
+    for p in participants_chronologiques:
         p_dict = p.model_dump()
         p_dict["player_name"] = p.player.name if p.player else "Joueur inconnu"
         p_dict["is_host"] = (p.player_username == host_username)
-        p_dict["is_friend"] = False # Par défaut, sera écrasé par la route GET personnalisée
-
+        p_dict["is_friend"] = False
+        
         # Calcul de la moyenne (PPD)
         darts_thrown = session.exec(
             select(func.count(Throw.id))
@@ -92,4 +99,33 @@ def build_base_game_state(game_id: int, session: Session) -> dict:
         participations_enrichies.append(p_dict)
 
     game_dict["participations"] = participations_enrichies
+    
+    # coord brutes, pour anim de la cible sur interface
+    all_throws = session.exec(
+        select(Throw)
+        .where(Throw.game_id == game.id)
+    ).all()
+    
+    current_player_hits = []
+    other_hits = []
+    
+    for t in all_throws:
+        # On ignore les lancers manuels (qui n'ont pas de vraies coordonnées)
+        # (Si x et y sont exactement 0.0, c'est un lancer manuel du téléphone)
+        if t.x_position == 0.0 and t.y_position == 0.0:
+            continue
+            
+        hit_data = {"x": t.x_position, "y": t.y_position}
+        
+        # sépare le joueur actuel des autres
+        if t.player_username == game.current_player_username:
+            current_player_hits.append(hit_data)
+        else:
+            other_hits.append(hit_data)
+            
+    game_dict["board_hits"] = {
+        "current_player": current_player_hits,
+        "others": other_hits
+    }
+    
     return game_dict
