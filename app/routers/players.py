@@ -69,9 +69,11 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(Throw.calculated_score > 0)
         .group_by(Throw.calculated_score, Throw.multiplier) 
-        .order_by(desc(func.count(Throw.id)))
+        .order_by(func.count(Throw.id).desc())
         .limit(3)
     ).all()
+    
+    # print(f"DEBUG SQL - Lignes favorites trouvées : {favorite_targets_rows}")
 
     # On transforme ça en labels pour Mathias (ex: ["T20", "D16", "20"])
     favorite_targets = []
@@ -167,7 +169,7 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
         win_rate_percentage=round(win_rate, 1),
         average_points_per_dart=round(average_ppd, 2),
         total_darts_thrown=total_throws,
-        favorite_target=favorite_targets,
+        favorite_targets=favorite_targets,
         cursed_target=cursed_target,
         total_misses=total_misses,
         total_triple_20=total_triple_20,

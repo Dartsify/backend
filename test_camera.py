@@ -8,8 +8,8 @@ API_KEY = RASPBERRY_API_KEY
 
 payload = {
     "target_id": "000001",  
-    "x_position": 182.0,  #simuler tirs
-    "y_position": 727.0
+    "x_position": 500.0,  #simuler tirs
+    "y_position": 600.0
 }
 
 # Le Raspberry Pi met son badge VIP (la clé API) dans l'en-tête

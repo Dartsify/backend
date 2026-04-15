@@ -100,7 +100,7 @@ class PlayerStats(BaseModel):
     average_points_per_dart: float
     total_darts_thrown: int
     
-    favorite_targets: List[int] = []  # Les 3 zone las plus touchée (ex: 20)
+    favorite_targets: List[str] = []  # Les 3 zone las plus touchée (ex: 20)
     total_misses: int = 0                  
     total_triple_20: int = 0      
     total_180s: int = 0
