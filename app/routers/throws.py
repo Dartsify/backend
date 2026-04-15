@@ -86,12 +86,14 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
     
     participation = session.get(GameParticipation, {"game_id": game.id, "player_username": joueur_actuel})
 
+    total_points_flechette = points * multiplicateur
+    
     # Règles du jeu et Bust
     is_bust = False
     is_victory = False
 
     if game.mode in ["501", "301"]:
-        nouveau_score = participation.current_score - points
+        nouveau_score = participation.current_score - total_points_flechette
         
         if nouveau_score < 0 or nouveau_score == 1 or (nouveau_score == 0 and multiplicateur != 2):
             is_bust = True
@@ -133,7 +135,7 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
             participation.current_score = nouveau_score
             
     elif game.mode == "perso":
-        participation.current_score += points
+        participation.current_score += total_points_flechette
 
     # crée le lancer dans db avec les infos qu'on a déduites
     db_throw = Throw(
@@ -156,8 +158,8 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
                 select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)
             ).all()
             
-            # Le score total du tour = la somme des lancers précédents + le lancer actuel
-            tour_score = sum(t.calculated_score for t in previous_throws) + points
+            # LE VRAI SCORE DU TOUR (Lancers précédents multipliés + lancer actuel multiplié)
+            tour_score = sum(t.calculated_score * t.multiplier for t in previous_throws) + total_points_flechette
             
             if tour_score == 180:
                 trigger_led_script("score_180")
@@ -227,6 +229,9 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
     # SSE : Un seul appel propre 
     await broadcast_game_update(game.id, session)
     return db_throw
+
+
+
 
 from pydantic import BaseModel
 #crée un modèle spécifique pour ce que le Raspberry va envoyer

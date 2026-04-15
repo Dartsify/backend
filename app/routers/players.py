@@ -69,7 +69,7 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(Throw.calculated_score > 0)
         .group_by(Throw.calculated_score, Throw.multiplier) 
-        .order_by(desc("hits"))
+        .order_by(desc(func.count(Throw.id)))
         .limit(3)
     ).all()
 
@@ -364,21 +364,82 @@ def delete_current_player(
 
 
 # Route pour voir ses invitations en attente (notification)
-@router.get("/me/pending")
+class PendingInvitationRead(BaseModel):
+    # Les champs de base que tu voulais garder
+    game_id: int
+    game_mode: str
+    
+    host_username: str
+    host_name: str
+    
+    current_score: int
+    final_score: Optional[int] = None
+    position: Optional[int] = None
+    status: str
+    join_date: datetime
+    
+    # new infos
+    target_name: str
+    target_location: str
+
+# Route pour voir ses invitations en attente (notification)
+@router.get("/me/pending", response_model=list[PendingInvitationRead])
 def get_pending_invitations(
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)
-):
+    current_user: Player = Depends(get_current_user)):
     from sqlmodel import select
     
-    # On cherche toutes les participations du joueur qui sont en "pending"
-    pending = session.exec(
+    # cherche toutes les participations en "pending"
+    pending_participations = session.exec(
         select(GameParticipation)
         .where(GameParticipation.player_username == current_user.username)
         .where(GameParticipation.status == ValidationStatus.pending)
     ).all()
     
-    return pending
+    enriched_invitations = []
+    
+    for p in pending_participations:
+        
+        game = p.game
+        target = game.target if game else None
+        
+        host_username = "Inconnu"
+        host_name = "Inconnu"
+        
+        if game and game.participations:
+            # On trie tous les joueurs de cette partie par ordre d'arrivée
+            participants_chronologiques = sorted(game.participations, key=lambda part: part.join_date)
+            
+            # L'hôte est toujours le premier (index 0)
+            host_participation = participants_chronologiques[0]
+            host_player = host_participation.player
+            
+            host_username = host_participation.player_username
+            host_name = host_player.name if host_player and host_player.name else host_username
+        
+        
+        invitation = PendingInvitationRead(
+            # Infos d'origine
+            game_id=p.game_id,
+            
+            host_username=host_username,
+            host_name=host_name,
+            
+            current_score=p.current_score,
+            final_score=p.final_score,
+            position=p.position,
+            status=p.status.value if hasattr(p.status, 'value') else p.status,
+            join_date=p.join_date,
+            
+            # Nouvelles infos
+            game_mode=game.mode if game else "Inconnu",
+            target_name=target.name if target else "Cible inconnue",
+            target_location=target.location if target else "Lieu inconnu"
+        )
+        
+        enriched_invitations.append(invitation)
+        
+    return enriched_invitations
 
 
 

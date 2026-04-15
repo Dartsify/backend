@@ -7,9 +7,9 @@ API_URL = "http://127.0.0.1:8000/throws/"
 API_KEY = RASPBERRY_API_KEY
 
 payload = {
-    "target_id": "000002",  
-    "x_position": 650.0,  #simuler tirs
-    "y_position": 600.0
+    "target_id": "000001",  
+    "x_position": 182.0,  #simuler tirs
+    "y_position": 727.0
 }
 
 # Le Raspberry Pi met son badge VIP (la clé API) dans l'en-tête
