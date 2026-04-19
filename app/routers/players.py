@@ -546,32 +546,52 @@ def get_my_zones_stats(
 
 
 
-#modele pour la heatmap (coordonnées X et Y des lancers)
-class Coordinate(BaseModel):
-    x: float
-    y: float
+#modele pour la heatmap
+class HeatmapZone(BaseModel):
+    zone: str    # Ex: "T20"
+    count: int   # Nombre de fois touchée 
 
 
 # Route dédiée à la Heatmap (renvoie juste les X et Y des 500 derniers lancers)
-@router.get("/me/heatmap", response_model=List[Coordinate])
+@router.get("/me/heatmap", response_model=List[HeatmapZone])
 def get_my_heatmap(
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
-    # recup les X et Y des parties validées (limité aux 500 derniers pour pas faire exploser)
-    coords = session.exec(
-        select(Throw.x_position, Throw.y_position)
+    # On compte les hits groupés par score ET multiplicateur
+    zones_data = session.exec(
+        select(Throw.calculated_score, Throw.multiplier, func.count(Throw.id).label("count"))
         .join(GameParticipation, 
               (Throw.game_id == GameParticipation.game_id) & 
               (Throw.player_username == GameParticipation.player_username))
         .where(GameParticipation.player_username == current_user.username)
         .where(GameParticipation.status == ValidationStatus.validated)
-        .order_by(Throw.id.desc())
-        .limit(500)
+        .group_by(Throw.calculated_score, Throw.multiplier)
     ).all()
 
-    # pour le front
-    return [{"x": c[0], "y": c[1]} for c in coords]
+    heatmap_result = []
+    
+    for row in zones_data:
+        score = row[0]
+        mult = row[1]
+        count = row[2]
+
+        # Formatage du label 
+        if score == 0:
+            label = "Miss"
+        elif score == 25:
+            label = "Double Bullseye" if mult == 2 else "Bullseye"
+        else:
+            if mult == 3:
+                label = f"T{score}"
+            elif mult == 2:
+                label = f"D{score}"
+            else:
+                label = f"{score}" 
+
+        heatmap_result.append(HeatmapZone(zone=label, count=count))
+
+    return heatmap_result
 
 
     
