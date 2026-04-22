@@ -47,26 +47,26 @@ CAMERAS_CALIBRATION = { # Ces valeurs sont à ajuster en fonction de la configur
 
 def get_score_and_multiplier(x: float, y: float, camera_id: int) -> tuple[int, int]:
     
-    # récup les dimensions de la bonne caméra (fallback sur la 1 si erreur)
+    # récupération des dimensions de la bonne caméra (fallback sur la 1 si erreur)
     calib = CAMERAS_CALIBRATION.get(camera_id, CAMERAS_CALIBRATION[1])
     
     # Calcul de distance par rapport au centre spécifique de cette caméra
     dx = x - calib["CENTER_X"]
     dy = calib["CENTER_Y"] - y # Y=0 en haut a gauche
     
-    # Calcul de distance (Pythagore)
+    # Calcul de la distance grâce à Pythagore
     distance = math.hypot(dx, dy)
 
-    # Vérif centrale et sortie de cible avant de calculer l'angle
+    # Vérification du centre et sortie de cible avant de calculer l'angle
     if distance <= calib["R_BULL_INNER"]:
-        return 50, 2  # Double Bull (Le multiplicateur = 2)
+        return 50, 2  # Double Bull (multiplicateur = 2)
     if distance <= calib["R_BULL_OUTER"]:
         return 25, 1  # Simple Bull 
     if distance > calib["R_DOUBLE_OUTER"]:
-        return 0, 1   # Hors cible (Miss)
+        return 0, 1   # Hors cible (Raté)
 
-    # Calcul de Angle (secteur)
-    # atan2 donne l'angle par rapport à la droite (3h). On le convertit en degrés.
+    # Calcul d'angle (secteur)
+    # atan2 donne l'angle par rapport à la droite (3h). On le convertit en degrés
     angle_rad = math.atan2(dy, dx)
     angle_deg = math.degrees(angle_rad)
     
@@ -77,7 +77,7 @@ def get_score_and_multiplier(x: float, y: float, camera_id: int) -> tuple[int, i
     sector_index = int(((adjusted_angle + 9) % 360) / 18)
     base_score = SECTORS[sector_index]
 
-    # Vérif des multiplicateurs
+    # Vérification des multiplicateurs
     if calib["R_TRIPLE_INNER"] <= distance <= calib["R_TRIPLE_OUTER"]:
         return base_score, 3 
     elif calib["R_DOUBLE_INNER"] <= distance <= calib["R_DOUBLE_OUTER"]:

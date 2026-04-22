@@ -348,6 +348,7 @@ async def launch_game(
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
+    
     # récupère la partie
     game = session.get(Game, game_id)
     if not game:
@@ -374,7 +375,8 @@ async def launch_game(
     # fige l'heure exacte du début de la partie
     game.start_date = datetime.utcnow()
     
-    trigger_led_script("start_round") #lance l'animation de lancement sur le Raspberry Pi
+    trigger_led_script("start_round")
+    logger.info(f" Lancement de la partie {game_id} ! Mode: {game.mode}. Que le meilleur gagne.") #lance l'animation de lancement sur le Raspberry Pi
     
     #chrono reinitialise
     game.last_interaction = datetime.utcnow()

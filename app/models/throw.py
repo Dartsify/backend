@@ -16,6 +16,7 @@ class Throw(SQLModel, table=True):
     x_position: float #position pour retrouver score avec algo de reconnaissance
     y_position: float
     
+    camera_id: int | None = Field(default=None)
     #Points (score et multiplier) calculés par backend (utils/dartboard_math) en fonction de x et y
     calculated_score: int
     multiplier: int = Field(default=1)

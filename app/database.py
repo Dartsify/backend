@@ -200,6 +200,7 @@ def seed_random_games_and_throws():
                         time_throw=date_partie + timedelta(minutes=tour),
                         x_position=random.uniform(200.0, 800.0), # Coordonnées au pif pour l'animation
                         y_position=random.uniform(200.0, 800.0),
+                        camera_id=random.choice([1, 2, 3]),
                         calculated_score=score,
                         multiplier=mult
                     )

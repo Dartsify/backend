@@ -8,8 +8,8 @@ API_KEY = RASPBERRY_API_KEY
 
 payload = {
     "target_id": "000001",  
-    "x_position": 250.0,  #simuler tirs
-    "y_position": 200.0,
+    "x_position": 624.0,  #simuler tirs
+    "y_position": 468.0,
     "camera_id" : 1 #simuler la camera 1
 }
 

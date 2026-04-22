@@ -17,7 +17,8 @@ from app.routers.throws import router as throws_router
 #config du logger:
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s", # Format date et heure
+    format="%(asctime)s - %(levelname)s - %(message)s",# Format date et heure
+    datefmt="%H:%M:%S", # Affiche seulement l'heure
     handlers=[
         logging.FileHandler("api.log"), # écrit logs dans ce fichier
         logging.StreamHandler()         # Affiche aussi logs dans console 

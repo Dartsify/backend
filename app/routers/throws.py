@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Security
 from fastapi.security.api_key import APIKeyHeader
@@ -72,7 +72,7 @@ def verify_raspberry_pi(api_key: str = Security(api_key_header)):
 # Fonction centrale du jeu : elle reçoit les infos d'un lancer, applique les règles du jeu 
 # (bust, victoire, changement de joueur/tour) et crée le lancer dans la DB avec toutes les infos calculées.
 #async def' car elle doit attendre l'envoi réseau des notifications SSE à la fin.
-async def process_throw_logic( #async pour faire la transmission SSE après le traitement du lancer, et await pour attendre que la transmission se termine avant de répondre au téléphone 
+async def process_throw_logic(
     session: Session, 
     game: Game, 
     joueur_actuel: str, 
@@ -81,63 +81,17 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
     points: int, 
     multiplicateur: int, 
     x_pos: float, 
-    y_pos: float
+    y_pos: float,
+    camera_id: int | None = None
 ) -> Throw:
     
     participation = session.get(GameParticipation, {"game_id": game.id, "player_username": joueur_actuel})
-
     total_points_flechette = points * multiplicateur
     
-    # Règles du jeu et Bust
     is_bust = False
     is_victory = False
 
-    if game.mode in ["501", "301"]:
-        nouveau_score = participation.current_score - total_points_flechette
-        
-        if nouveau_score < 0 or nouveau_score == 1 or (nouveau_score == 0 and multiplicateur != 2):
-            is_bust = True
-            
-            trigger_led_script("bust") #lance l'animation de bust sur le Raspberry Pi
-            
-            # Annulation des points
-            previous_throws = session.exec(
-                select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)).all()
-            
-            points_a_annuler = sum(t.calculated_score for t in previous_throws)
-            participation.current_score += points_a_annuler            
-            
-        elif nouveau_score == 0 and multiplicateur == 2:
-            is_victory = True
-            
-            trigger_led_script("win") #lance l'animation de victoire sur le Raspberry Pi
-
-            
-            participation.current_score = 0
-            participation.final_score = 0
-            participation.position = 1 
-            game.status = GameStatus.finished
-            
-            game.end_date = datetime.utcnow() # On enregistre l'heure de la victoire 
-            
-            #classement des perdants (pour mathias)
-            autres_joueurs = [p for p in game.participations if p.player_username != participation.player_username]
-            autres_joueurs.sort(key=lambda p: p.current_score)
-            
-            place_actuelle = 2
-            for perdant in autres_joueurs:
-                perdant.final_score = perdant.current_score
-                perdant.position = place_actuelle
-                session.add(perdant)
-                place_actuelle += 1
-                
-        else:
-            participation.current_score = nouveau_score
-            
-    elif game.mode == "perso":
-        participation.current_score += total_points_flechette
-
-    # crée le lancer dans db avec les infos qu'on a déduites
+    # crée l'objet Throw immédiatement (mais on ne commit pas encore)
     db_throw = Throw(
         game_id=game.id,
         player_username=joueur_actuel,
@@ -145,88 +99,112 @@ async def process_throw_logic( #async pour faire la transmission SSE après le t
         dart_number=flechette_actuelle,
         x_position=x_pos,
         y_position=y_pos,
+        camera_id=camera_id,
         calculated_score=points,
         multiplier=multiplicateur
     )
     session.add(db_throw)
-    
-    #gestion des animations led pour 100+, 180 et next player
-    if not is_victory and not is_bust:
-        if flechette_actuelle == 3:
-            # récup les lancers précédents de ce tour pour calculer le total
+
+    # Logique spécifique aux modes 501 / 301
+    if game.mode in ["501", "301"]:
+        nouveau_score = participation.current_score - total_points_flechette
+        
+        # Vérification du BUST
+        if nouveau_score < 0 or nouveau_score == 1 or (nouveau_score == 0 and multiplicateur != 2):
+            is_bust = True
+            logger.warning(f" BUST ! {joueur_actuel}. Retour à {participation.current_score}.")
+            trigger_led_script("bust")
+            
+            # Correction BUG : On annule les points du tour actuel (y compris multiplicateurs)
             previous_throws = session.exec(
-                select(Throw).where(Throw.game_id == game.id, Throw.player_username == joueur_actuel, Throw.tour_number == tour_actuel)
+                select(Throw).where(
+                    Throw.game_id == game.id, 
+                    Throw.player_username == joueur_actuel, 
+                    Throw.tour_number == tour_actuel
+                )
             ).all()
             
-            # LE VRAI SCORE DU TOUR (Lancers précédents multipliés + lancer actuel multiplié)
-            tour_score = sum(t.calculated_score * t.multiplier for t in previous_throws) + total_points_flechette
+            # remet le score tel qu'il était au début du tour
+            # On compte les lancers déjà en DB + celui qu'on vient d'ajouter
+            points_du_tour = sum(t.calculated_score * t.multiplier for t in previous_throws)
             
-            if tour_score == 180:
-                trigger_led_script("score_180")
-            elif tour_score >= 100:
-                trigger_led_script("score_100")
-            else:
-                trigger_led_script("next_player")
-
-
-    #intelligence du tour
-    if not is_victory:
-        fin_de_tour = is_bust or (flechette_actuelle == 3)
-
-        if fin_de_tour:
-            #prendre que les joueurs validés
-            participants_actifs = [p for p in game.participations if p.status != ValidationStatus.rejected]
+            participation.current_score += (points_du_tour - total_points_flechette)
             
-            # tri chronologique
-            participants_actifs = sorted(participants_actifs, key=lambda p: p.join_date)
+        # Vérification de la victoire (score doit être exactement à 0 avec un double)
+        elif nouveau_score == 0 and multiplicateur == 2:
+            is_victory = True
+            logger.info(f" VICTOIRE ! {joueur_actuel} par un Double !")
+            trigger_led_script("win")
             
-            current_idx = next(i for i, p in enumerate(participants_actifs) if p.player_username == joueur_actuel)
-            next_idx = current_idx + 1
+            participation.current_score = 0
+            participation.final_score = 0
+            participation.position = 1 
+            game.status = GameStatus.finished
+            game.end_date = datetime.now(timezone.utc)
             
-            # Si on a fait le tour de tous les joueurs (Fin de la manche)
-            if next_idx >= len(participants_actifs):
-                if game.mode == "perso":
-                    #mode perso doit s'arrete
-                    game.status = GameStatus.finished
-                    game.end_date = datetime.utcnow() # On enregistre l'heure de fin
-                    
-                    # récup tous les joueurs de la partie et trie les scores pour distribuer les places (1er, 2eme, 3eme...)
-                    tous_les_joueurs = game.participations
-                    tous_les_joueurs.sort(key=lambda p: p.current_score, reverse=True)
-                    
-                    place_actuelle = 1
-                    for joueur in tous_les_joueurs:
-                        joueur.final_score = joueur.current_score #  fige le score final
-                        joueur.position = place_actuelle          # attribue le classement
-                        session.add(joueur)
-                        place_actuelle += 1
-                        
-                    logger.info("Fin de la partie Mode Perso ! Tout le monde a lancé ses 3 fléchettes.")
-                else:
-                    # Pour le 501/301, on passe au tour suivant
-                    next_idx = 0 
-                    game.current_turn_number += 1 
-                    game.current_player_username = participants_actifs[next_idx].player_username
-                    game.current_dart_number = 1
-                    logger.info(f"Nouveau tour ! C'est à {game.current_player_username}.")
-            else:
-                # passe au joueur suivant dans le MÊME tour
-                game.current_player_username = participants_actifs[next_idx].player_username
-                game.current_dart_number = 1
-                logger.info(f"Fin de tour. C'est maintenant à {game.current_player_username} de jouer !")
+            # Classement automatique des perdants
+            autres = [p for p in game.participations if p.player_username != participation.player_username]
+            autres.sort(key=lambda p: p.current_score)
+            for i, perdant in enumerate(autres, start=2):
+                perdant.final_score = perdant.current_score
+                perdant.position = i
+                session.add(perdant)
         else:
-            # passe juste à la fléchette suivante
+            participation.current_score = nouveau_score
+
+    elif game.mode == "perso":
+        participation.current_score += total_points_flechette
+
+    # Gestion des animations LED 
+    if not is_victory and not is_bust and flechette_actuelle == 3:
+        # On récupère le score total du tour
+        current_tour_throws = session.exec(
+            select(Throw).where(
+                Throw.game_id == game.id, 
+                Throw.player_username == joueur_actuel, 
+                Throw.tour_number == tour_actuel
+            )
+        ).all()
+        tour_score = sum(t.calculated_score * t.multiplier for t in current_tour_throws)
+
+        if tour_score == 180:
+            trigger_led_script("score_180")
+        elif tour_score >= 100:
+            trigger_led_script("score_100")
+        else:
+            trigger_led_script("next_player")
+
+    # Logique de transition de tour
+    if not is_victory:
+        if is_bust or flechette_actuelle == 3:
+            # Passage au joueur suivant
+            participants_actifs = sorted(
+                [p for p in game.participations if p.status != ValidationStatus.rejected],
+                key=lambda p: p.join_date
+            )
+            
+            curr_idx = next(i for i, p in enumerate(participants_actifs) if p.player_username == joueur_actuel)
+            next_idx = (curr_idx + 1) % len(participants_actifs)
+            
+            if next_idx == 0: # On a fini un cycle complet
+                if game.mode == "perso":
+                    game.status = GameStatus.finished
+                    game.end_date = datetime.now(timezone.utc)
+                else:
+                    game.current_turn_number += 1
+            
+            game.current_player_username = participants_actifs[next_idx].player_username
+            game.current_dart_number = 1
+        else:
             game.current_dart_number += 1
 
-    #reinitialise le compteur d'inactivire à chaque lancer
-    game.last_interaction = datetime.utcnow()
+    game.last_interaction = datetime.now(timezone.utc)
     
     session.add(participation)
     session.add(game)
     session.commit()
     session.refresh(db_throw)
     
-    # SSE : Un seul appel propre 
     await broadcast_game_update(game.id, session)
     return db_throw
 
@@ -249,6 +227,10 @@ async def register_throw(
     session: Session = Depends(get_session),
     is_hardware_authorized: bool = Depends(verify_raspberry_pi)):
     
+    
+    # Log l'entrée brute (Ce que le Pi vient d'envoyer)
+    logger.info(f" IMPACT REÇU [Cible: {throw_in.target_id}] - Caméra {throw_in.camera_id} - Pixels: (X:{throw_in.x_position}, Y:{throw_in.y_position})")
+    
     #new logique
     #recherche multi cible (si bar a plusieurs cibles)
     # On cherche la partie en cours SUR LA CIBLE qui vient d'envoyer le message
@@ -266,6 +248,7 @@ async def register_throw(
     joueur_actuel = game.current_player_username
     tour_actuel = game.current_turn_number
     flechette_actuelle = game.current_dart_number
+    logger.info(f" Tour de {joueur_actuel} (Tour n°{tour_actuel}, Fléchette {flechette_actuelle}/3)")
 
     # calcul des points
     points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position, camera_id=throw_in.camera_id)
@@ -273,7 +256,7 @@ async def register_throw(
     # On délègue toute l'intelligence au moteur central 
     return await process_throw_logic(#ajout de await pour attendre que le broadcast se termine avant de répondre au Pi (pour éviter les problèmes de concurrence sur la DB)
         session, game, joueur_actuel, tour_actuel, flechette_actuelle,
-        points, multiplicateur, throw_in.x_position, throw_in.y_position
+        points, multiplicateur, throw_in.x_position, throw_in.y_position, throw_in.camera_id
     )
 
 
@@ -307,7 +290,7 @@ async def register_manual_throw(
     # On délègue au moteur central (avec x et y à 0 pour indiquer que c'est manuel) !
     db_throw = await process_throw_logic(#pareil que pour le register_throw, on attend que le broadcast se termine avant de répondre au téléphone pour éviter les problèmes de concurrence sur la DB
         session, game, joueur_actuel, tour_actuel, flechette_actuelle,
-        points, multiplicateur, 0.0, 0.0
+        points, multiplicateur, 0.0, 0.0, None
     )
     
     logger.info(f"Lancer MANUEL enregistré par {current_user.username} : {points} points.")
