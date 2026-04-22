@@ -3,33 +3,66 @@ import math
 # Les 20 secteurs dans l'ordre des aiguilles d'une montre en partant de midi (12h)
 SECTORS = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5]
 
-def get_score_and_multiplier(x: float, y: float) -> tuple[int, int]:
-    # Centre de l'image (en pixels) 
-    CENTER_X = 582
-    CENTER_Y = 727
-    
-    # Rayons (en pixels)
-    R_BULL_INNER = 12      # Fin du double bull
-    R_BULL_OUTER = 36      # Fin du simple bull
-    R_TRIPLE_INNER = 236   # Début du triple
-    R_TRIPLE_OUTER = 258   # Fin du triple
-    R_DOUBLE_INNER = 390   # Début du double
-    R_DOUBLE_OUTER = 417   # Fin du double (bord de la zone de jeu)
 
-    # Calcul de distance par rapport au centre
-    dx = x - CENTER_X
-    # dy est inversé car ici image numérique, le pixel Y=0 est tout en haut (a gauche)
-    dy = CENTER_Y - y 
+
+CAMERAS_CALIBRATION = { # Ces valeurs sont à ajuster en fonction de la configuration réelle de chaque caméra (1 2 et 3)
+    1: {
+        "CENTER_X": 624,
+        "CENTER_Y": 325,
+        "R_BULL_INNER": 8,
+        "R_BULL_OUTER": 22,
+        "R_TRIPLE_INNER": 138,
+        "R_TRIPLE_OUTER": 151,
+        "R_DOUBLE_INNER": 227,
+        "R_DOUBLE_OUTER": 247
+    },
+    
+    2: {
+        
+        "CENTER_X": 631,
+        "CENTER_Y": 332,
+        "R_BULL_INNER": 8,
+        "R_BULL_OUTER": 22,
+        "R_TRIPLE_INNER": 138,
+        "R_TRIPLE_OUTER": 152,
+        "R_DOUBLE_INNER": 227,
+        "R_DOUBLE_OUTER": 245
+    },
+    
+    3: {
+        
+        "CENTER_X": 622,
+        "CENTER_Y": 333,
+        "R_BULL_INNER": 12,
+        "R_BULL_OUTER": 20,
+        "R_TRIPLE_INNER": 137,
+        "R_TRIPLE_OUTER": 150,
+        "R_DOUBLE_INNER": 229,
+        "R_DOUBLE_OUTER": 243
+    }
+}
+
+
+
+
+def get_score_and_multiplier(x: float, y: float, camera_id: int) -> tuple[int, int]:
+    
+    # récup les dimensions de la bonne caméra (fallback sur la 1 si erreur)
+    calib = CAMERAS_CALIBRATION.get(camera_id, CAMERAS_CALIBRATION[1])
+    
+    # Calcul de distance par rapport au centre spécifique de cette caméra
+    dx = x - calib["CENTER_X"]
+    dy = calib["CENTER_Y"] - y # Y=0 en haut a gauche
     
     # Calcul de distance (Pythagore)
     distance = math.hypot(dx, dy)
 
-    # Vérification centrale et sortie de cible avant de calculer l'angle
-    if distance <= R_BULL_INNER:
+    # Vérif centrale et sortie de cible avant de calculer l'angle
+    if distance <= calib["R_BULL_INNER"]:
         return 50, 2  # Double Bull (Le multiplicateur = 2)
-    if distance <= R_BULL_OUTER:
+    if distance <= calib["R_BULL_OUTER"]:
         return 25, 1  # Simple Bull 
-    if distance > R_DOUBLE_OUTER:
+    if distance > calib["R_DOUBLE_OUTER"]:
         return 0, 1   # Hors cible (Miss)
 
     # Calcul de Angle (secteur)
@@ -37,17 +70,17 @@ def get_score_and_multiplier(x: float, y: float) -> tuple[int, int]:
     angle_rad = math.atan2(dy, dx)
     angle_deg = math.degrees(angle_rad)
     
-    # On décale les axes pour que 0° soit exactement en haut (12h au milieu de la zone du 20) et on tourne à droite (horaire)
+    # On décale les axes pour que 0° soit exactement en haut et on tourne à droite
     adjusted_angle = (90 - angle_deg) % 360
     
-    # Chaque secteur fait 18°. On décale de +9° pour que le secteur 20 (en haut) soit bien centré sur 0°
+    # Chaque secteur fait 18°. On décale de +9° pour que le secteur 20 soit bien centré
     sector_index = int(((adjusted_angle + 9) % 360) / 18)
     base_score = SECTORS[sector_index]
 
     # Vérif des multiplicateurs
-    if R_TRIPLE_INNER <= distance <= R_TRIPLE_OUTER:
+    if calib["R_TRIPLE_INNER"] <= distance <= calib["R_TRIPLE_OUTER"]:
         return base_score, 3 
-    elif R_DOUBLE_INNER <= distance <= R_DOUBLE_OUTER:
+    elif calib["R_DOUBLE_INNER"] <= distance <= calib["R_DOUBLE_OUTER"]:
         return base_score, 2
     else:
         return base_score, 1

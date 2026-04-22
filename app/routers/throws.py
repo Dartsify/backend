@@ -239,6 +239,7 @@ class HardwareThrowPayload(BaseModel):
     target_id: str
     x_position: float
     y_position: float
+    camera_id: int #1.2 ou 3 en fonction de la camera la plus precise
 
 #Routes
 #enregistrer un lancer de flechette
@@ -267,7 +268,7 @@ async def register_throw(
     flechette_actuelle = game.current_dart_number
 
     # calcul des points
-    points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position)
+    points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position, camera_id=throw_in.camera_id)
     
     # On délègue toute l'intelligence au moteur central 
     return await process_throw_logic(#ajout de await pour attendre que le broadcast se termine avant de répondre au Pi (pour éviter les problèmes de concurrence sur la DB)
