@@ -12,3 +12,4 @@ dependencies:
   - python-jose=3.5.0
   - python-dotenv=1.2.2
   - python-multipart=0.0.22
+  - requests=2.33.1
