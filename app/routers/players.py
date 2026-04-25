@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from sqlmodel import Session, select, func, desc
+from sqlmodel import Session, select, func, desc, col
 from app.database import get_session
 
 from app.models.player import Player, PlayerCreate, PlayerRead, PlayerUpdate, PlayerPublic, PlayerStats, PasswordUpdate, Friendship, FriendshipStatus, HitData, ZoneStatsResponse
@@ -13,6 +13,7 @@ from app.models.player import FriendRequestResponse, FriendResponse, PlayerProfi
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.throw import Throw
+from app.models.target import Target
 
 from app.security.auth import hash_password, verify_password, get_current_user
 
@@ -846,6 +847,7 @@ def remove_friend(
     logger.info(f"{current_user.username} a supprimé {friend_username} de ses amis.")
     
     return {"message": f"Vous n'êtes plus amis avec {friend_username}."}
+
 
 
 

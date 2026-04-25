@@ -11,7 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select, func, col 
 from app.database import get_session
 
 from app.models.game import Game, GameCreate, GameRead, GameStatus, GameListResponse
@@ -797,3 +797,49 @@ async def add_guests_to_game(
         "added_guests": added_guests, 
         "starting_score": starting_score
     }
+    
+    
+    
+    
+#route pour que le joueur voit ses historiques de parties jouees avec un ami ou a un endroit sur la base d'n filtre 
+@router.get("/my_history")
+def get_my_game_history(
+    location: str | None = None,
+    friends: List[str] | None = Query(default=None),
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    
+    # Base : cherche les participations de l'utilisateur actuel
+    # jointure pour récupérer les objets "Game" directement
+    query = (
+        select(Game)
+        .join(GameParticipation)
+        .where(GameParticipation.player_username == current_user.username)
+        .where(Game.status == GameStatus.finished) # passé
+    )
+
+    # Filtre par lieu (Recherche textuelle sur le nom ou la ville de la cible)
+    if location:
+        query = query.join(Target, Game.target_id == Target.id).where(
+            col(Target.location).ilike(f"%{location}%") | 
+            col(Target.name).ilike(f"%{location}%")
+        )
+
+    # Filtre par amis (Parties jouées avec X et Y)
+    if friends:
+        for friend_username in friends:
+            # On cherche les games où l'ami a joué, et on filtre notre requête principale dessus
+            query = query.where(
+                col(Game.id).in_(
+                    select(GameParticipation.game_id)
+                    .where(GameParticipation.player_username == friend_username)
+                )
+            )
+
+    # Tri par date
+    query = query.order_by(col(Game.end_date).desc())
+
+    results = session.exec(query).all()
+    
+    return results

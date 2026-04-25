@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Security
 from fastapi.security.api_key import APIKeyHeader
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col 
 from app.database import get_session
 
 from app.models.throw import Throw, ThrowCreate, ThrowRead, ManualThrowCreate
@@ -115,7 +115,7 @@ async def process_throw_logic(
             logger.warning(f" BUST ! {joueur_actuel}. Retour à {participation.current_score}.")
             trigger_led_script("bust")
             
-            # Correction BUG : On annule les points du tour actuel (y compris multiplicateurs)
+            # Correction BUG : annule les points du tour actuel (y compris multiplicateurs)
             previous_throws = session.exec(
                 select(Throw).where(
                     Throw.game_id == game.id, 
@@ -128,7 +128,7 @@ async def process_throw_logic(
             # On compte les lancers déjà en DB + celui qu'on vient d'ajouter
             points_du_tour = sum(t.calculated_score * t.multiplier for t in previous_throws)
             
-            participation.current_score += (points_du_tour - total_points_flechette)
+            participation.current_score += points_du_tour #correction bug
             
         # Vérification de la victoire (score doit être exactement à 0 avec un double)
         elif nouveau_score == 0 and multiplicateur == 2:
@@ -296,5 +296,101 @@ async def register_manual_throw(
     logger.info(f"Lancer MANUEL enregistré par {current_user.username} : {points} points.")
     return db_throw
 
+
+
+#route pour annuler le dernier lancer !! (en cas de defaillance technique ou erreur de score)
+@router.delete("/undo/{game_id}")
+async def undo_last_throw(
+    game_id: int,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    # vérif que la personne qui annule joue bien dans partie
+    is_participant = any(p.player_username == current_user.username for p in game.participations)
+    if not is_participant and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Vous ne participez pas à cette partie.")
+
+    #cherche le DERNIER lancer enregistré pour cette partie
+    last_throw = session.exec(
+        select(Throw)
+        .where(Throw.game_id == game_id)
+        .order_by(col(Throw.id).desc())
+    ).first()
+
+    if not last_throw:
+        raise HTTPException(status_code=400, detail="Aucun lancer à annuler dans cette partie.")
+
+    joueur_concerne = last_throw.player_username
+
+    # supp ce lancer de la base de données
+    session.delete(last_throw)
+    
+    # restaure les pointeurs du jeu (-> à qui le tour ?)
+    game.current_player_username = joueur_concerne
+    game.current_turn_number = last_throw.tour_number
+    game.current_dart_number = last_throw.dart_number
+    
+    # Si la partie était finie (le lancer annulé était la victoire), on la relance 
+    if game.status == GameStatus.finished:
+        game.status = GameStatus.in_progress
+        game.end_date = None
+        # efface les final_score et positions de tout le monde
+        for p in game.participations:
+            p.final_score = None
+            p.position = None
+            session.add(p)
+
+    # recalcul du score parfait de ce joueur depuis le début
+    participation = next(p for p in game.participations if p.player_username == joueur_concerne)
+    
+    remaining_throws = session.exec(
+        select(Throw)
+        .where(Throw.game_id == game_id)
+        .where(Throw.player_username == joueur_concerne)
+        .order_by(Throw.id)
+    ).all()
+
+    if game.mode in ["501", "301"]:
+        start_score = int(game.mode)
+        current_score = start_score
+        
+        #simule les tours un par un pour gérer correctement les "vieux busts"
+        throws_by_turn : dict[int, list[Throw]]= {}
+        
+        for t in remaining_throws:
+            if t.tour_number not in throws_by_turn:
+                throws_by_turn[t.tour_number] = []
+            throws_by_turn[t.tour_number].append(t) # VS Code reconnaîtra .append()
+            
+        for tour in sorted(throws_by_turn.keys()):
+            tour_throws = throws_by_turn[tour]
+            
+            tour_score = sum(t.calculated_score * t.multiplier for t in tour_throws)
+            temp_score = current_score - tour_score
+            
+            last_t = tour_throws[-1]
+            # Vérification du BUST
+            if temp_score < 0 or temp_score == 1 or (temp_score == 0 and last_t.multiplier != 2):
+                pass # BUST : on ne valide pas le score du tour
+            else:
+                current_score = temp_score # Valide
+                
+        participation.current_score = current_score
+
+    elif game.mode == "perso":
+        participation.current_score = sum(t.calculated_score * t.multiplier for t in remaining_throws)
+    session.add(participation)
+    session.add(game)
+    session.commit()
+    
+    logger.info(f"Lancer annulé par {current_user.username}. Retour au joueur {joueur_concerne} (Fléchette {last_throw.dart_number}).")
+    
+    await broadcast_game_update(game.id, session)
+    
+    return {"message": "Dernier lancer annulé avec succès."}
 
 
