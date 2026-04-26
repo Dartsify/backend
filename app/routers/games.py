@@ -843,3 +843,82 @@ def get_my_game_history(
     results = session.exec(query).all()
     
     return results
+
+
+
+
+from typing import Dict, Any
+
+from typing import Dict, List
+from pydantic import BaseModel
+
+class ZoneStatBreakdown(BaseModel):
+    zone: str
+    total_hits: int
+    number: Dict[str, int] # Remplacé 'breakdown' par 'number'
+
+class GameStatsResponse(BaseModel):
+    game_id: int
+    zone_stats: List[ZoneStatBreakdown]
+    
+
+#recup les stats de la game qui vient d'etre terminee pour tous les joueurs
+@router.get("/{game_id}/stats", response_model=GameStatsResponse)
+def get_single_game_stats(
+    game_id: int,
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    player_mapping = {}
+    for p in game.participations:
+        player_mapping[p.player_username] = p.player.name if p.player and p.player.name else p.player_username
+
+    # Requête SQL pour grouper les lancers par Score, Multiplicateur ET Joueur
+    hits_query = session.exec(
+        select(Throw.calculated_score, Throw.multiplier, Throw.player_username, func.count(Throw.id).label("hits"))
+        .where(Throw.game_id == game_id)
+        .where(Throw.x_position != 0.0) # On ignore les lancers manuels pour ces stats de précision
+        .group_by(Throw.calculated_score, Throw.multiplier, Throw.player_username)
+    ).all()
+
+    zones_dict = {}
+
+    for row in hits_query:
+        score = row[0]
+        mult = row[1]
+        username = row[2]
+        hits = row[3]
+        
+        if score == 0:
+            label = "Miss"
+        elif score == 25:
+            label = "Double Bullseye" if mult == 2 else "Bullseye"
+        else:
+            if mult == 3: label = f"T{score}"
+            elif mult == 2: label = f"D{score}"
+            else: label = f"{score}"
+            
+        display_name = player_mapping.get(username, username)
+
+        # Si c'est la première fois qu'on croise cette zone, on l'initialise
+        if label not in zones_dict:
+            zones_dict[label] = {
+                "zone": label, 
+                "total_hits": 0, 
+                "number": {}
+            }
+        
+        # On ajoute les stats
+        zones_dict[label]["total_hits"] += hits
+        zones_dict[label]["number"][display_name] = hits
+
+    sorted_zones = sorted(list(zones_dict.values()), key=lambda x: x["total_hits"], reverse=True)
+
+    return GameStatsResponse(
+        game_id=game_id,
+        zone_stats=sorted_zones
+    )

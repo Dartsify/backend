@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,20 +24,22 @@ logger = logging.getLogger(__name__) # Récupère le logger configuré
 
 
 
-def calculate_player_stats(username: str, session: Session) -> PlayerStats:
+def calculate_player_stats(username: str, session: Session, since_date: Optional[datetime]= None) -> PlayerStats:
 # Parties jouées
+    q_games = select(func.count()).select_from(GameParticipation)
+    if since_date:
+        q_games = q_games.join(Game).where(Game.end_date >= since_date)
     total_games = session.exec(
-        select(func.count())
-        .select_from(GameParticipation)
-        .where(GameParticipation.player_username == username)
+        q_games.where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
     ).one()
 
     # Victoires
+    q_wins = select(func.count()).select_from(GameParticipation)
+    if since_date:
+        q_wins = q_wins.join(Game).where(Game.end_date >= since_date)
     total_wins = session.exec(
-        select(func.count())
-        .select_from(GameParticipation)
-        .where(GameParticipation.player_username == username)
+        q_wins.where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(GameParticipation.position == 1)
     ).one()
@@ -45,15 +47,14 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
     win_rate = (total_wins / total_games * 100) if total_games > 0 else 0.0
 
     # Lancers et Moyenne (PPD)
+    q_lancers = (
+        select(func.count(Throw.calculated_score), func.avg(Throw.calculated_score))
+        .join(GameParticipation, (Throw.game_id == GameParticipation.game_id) & (Throw.player_username == GameParticipation.player_username))
+    )
+    if since_date:
+        q_lancers = q_lancers.join(Game, Throw.game_id == Game.id).where(Game.end_date >= since_date)
     stats_lancers = session.exec(
-        select(
-            func.count(Throw.calculated_score),
-            func.avg(Throw.calculated_score)
-        )
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == username)
+        q_lancers.where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
     ).first()
 
@@ -61,73 +62,64 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
     average_ppd = stats_lancers[1] if stats_lancers and stats_lancers[1] else 0.0
 
     # 3 Zones favorites (dans l'ordre) en tenant compte du multiplicateur
-    favorite_targets_rows = session.exec(
+    q_fav = (
         select(Throw.calculated_score, Throw.multiplier, func.count(Throw.id).label("hits"))
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == username)
+        .join(GameParticipation, (Throw.game_id == GameParticipation.game_id) & (Throw.player_username == GameParticipation.player_username))
+    )
+    if since_date:
+        q_fav = q_fav.join(Game, Throw.game_id == Game.id).where(Game.end_date >= since_date)
+        
+    favorite_targets_rows = session.exec(
+        q_fav.where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(Throw.calculated_score > 0)
         .group_by(Throw.calculated_score, Throw.multiplier) 
-        .order_by(func.count(Throw.id).desc())
+        .order_by(desc("hits"))
         .limit(3)
     ).all()
     
-    # print(f"DEBUG SQL - Lignes favorites trouvées : {favorite_targets_rows}")
-
-    # On transforme ça en labels pour Mathias (ex: ["T20", "D16", "20"])
     favorite_targets = []
     for row in favorite_targets_rows:
         score = row[0]
         mult = row[1]
-        
         if score == 25:
             label = "Double Bullseye" if mult == 2 else "Bullseye"
         else:
-            if mult == 3:
-                label = f"T{score}"
-            elif mult == 2:
-                label = f"D{score}"
-            else:
-                label = f"{score}" # Simple
-                
+            if mult == 3: label = f"T{score}"
+            elif mult == 2: label = f"D{score}"
+            else: label = f"{score}"
         favorite_targets.append(label)
     
     # Les ratés (0 points)
+    q_miss = select(func.count(Throw.id)).join(GameParticipation, (Throw.game_id == GameParticipation.game_id) & (Throw.player_username == GameParticipation.player_username))
+    if since_date:
+        q_miss = q_miss.join(Game, Throw.game_id == Game.id).where(Game.end_date >= since_date)
     total_misses = session.exec(
-        select(func.count(Throw.id))
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == username)
+        q_miss.where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(Throw.calculated_score == 0)
     ).one()
 
     # Triple 20
+    q_t20 = select(func.count(Throw.id)).join(GameParticipation, (Throw.game_id == GameParticipation.game_id) & (Throw.player_username == GameParticipation.player_username))
+    if since_date:
+        q_t20 = q_t20.join(Game, Throw.game_id == Game.id).where(Game.end_date >= since_date)
     total_triple_20 = session.exec(
-        select(func.count(Throw.id))
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == username)
+        q_t20.where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(Throw.calculated_score == 20)
         .where(Throw.multiplier == 3)
     ).one()
 
     # Scores par tour (180s et 100+)
+    q_tours = select(
+        Throw.game_id, Throw.tour_number, func.sum(Throw.calculated_score * Throw.multiplier).label("tour_score")
+    ).join(GameParticipation, (Throw.game_id == GameParticipation.game_id) & (Throw.player_username == GameParticipation.player_username))
+    if since_date:
+        q_tours = q_tours.join(Game, Throw.game_id == Game.id).where(Game.end_date >= since_date)
+        
     scores_par_tour = session.exec(
-        select(
-            Throw.game_id, 
-            Throw.tour_number, 
-            func.sum(Throw.calculated_score * Throw.multiplier).label("tour_score")
-        )
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == username)
+        q_tours.where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
         .group_by(Throw.game_id, Throw.tour_number)
     ).all()
@@ -136,15 +128,14 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
     total_100_plus = sum(1 for tour in scores_par_tour if tour.tour_score >= 100 and tour.tour_score < 180)
 
     # Zone maudite
+    q_cursed = select(Throw.calculated_score, Throw.multiplier, func.count(Throw.id).label("hits")).join(GameParticipation, (Throw.game_id == GameParticipation.game_id) & (Throw.player_username == GameParticipation.player_username))
+    if since_date:
+        q_cursed = q_cursed.join(Game, Throw.game_id == Game.id).where(Game.end_date >= since_date)
     cursed_target_row = session.exec(
-        select(Throw.calculated_score, Throw.multiplier, func.count(Throw.id).label("hits"))
-        .join(GameParticipation, 
-              (Throw.game_id == GameParticipation.game_id) & 
-              (Throw.player_username == GameParticipation.player_username))
-        .where(GameParticipation.player_username == username)
+        q_cursed.where(GameParticipation.player_username == username)
         .where(GameParticipation.status == ValidationStatus.validated)
         .where(Throw.calculated_score > 0)
-        .group_by(Throw.calculated_score, Throw.multiplier) # <-- On groupe par les DEUX !
+        .group_by(Throw.calculated_score, Throw.multiplier)
         .order_by(func.count(Throw.id).asc())
     ).first()
     
@@ -155,15 +146,32 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
         if score == 25:
             cursed_target = "Double Bullseye" if mult == 2 else "Bullseye"
         else:
-            if mult == 3:
-                cursed_target = f"T{score}"
-            elif mult == 2:
-                cursed_target = f"D{score}"
-            else:
-                cursed_target = f"{score}"
-            
+            if mult == 3: cursed_target = f"T{score}"
+            elif mult == 2: cursed_target = f"D{score}"
+            else: cursed_target = f"{score}"
+
+    # Cible préférée / Lieu le plus joué 
+    q_location = (
+        select(Target.name, Target.location, func.count(Game.id).label("games_count"))
+        .join(Game, Game.target_id == Target.id)
+        .join(GameParticipation, GameParticipation.game_id == Game.id)
+    )
+    if since_date:
+        q_location = q_location.where(Game.end_date >= since_date)
+        
+    favorite_location_row = session.exec(
+        q_location.where(GameParticipation.player_username == username)
+        .where(GameParticipation.status == ValidationStatus.validated)
+        .group_by(Target.name, Target.location)
+        .order_by(desc("games_count"))
+    ).first()
     
-    # On retourne directement l'objet Pydantic rempli avec toutes les stats calculées
+    favorite_play_location = None
+    if favorite_location_row:
+        nom_cible = favorite_location_row[0]
+        ville_cible = favorite_location_row[1]
+        favorite_play_location = f"{nom_cible} ({ville_cible})"
+            
     return PlayerStats(
         total_games_played=total_games,
         total_wins=total_wins,
@@ -175,7 +183,8 @@ def calculate_player_stats(username: str, session: Session) -> PlayerStats:
         total_misses=total_misses,
         total_triple_20=total_triple_20,
         total_180s=total_180s,
-        total_100_plus=total_100_plus        
+        total_100_plus=total_100_plus,
+        favorite_play_location=favorite_play_location 
     )
 
 
@@ -848,6 +857,70 @@ def remove_friend(
     
     return {"message": f"Vous n'êtes plus amis avec {friend_username}."}
 
+
+
+
+#modele pour comparer ses stas du mois avec ses amis
+class MonthlyComparisonData(BaseModel):
+    username: str
+    player_name: str
+    stats: PlayerStats
+    
+
+# Renvoie TOUTES les statistiques du mois en cours
+# pour l'utilisateur connecté et une liste d'amis choisis.
+@router.get("/me/friends/monthly_comparison", response_model=List[MonthlyComparisonData])
+def get_monthly_friends_comparison(
+    friends: List[str] = Query(default=[]),
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # Date du 1er jour du mois courant
+    now = datetime.now(timezone.utc)
+    first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # Sécurité : Vérifier que les amis demandés sont de vrais amis
+    friendships = session.exec(
+        select(Friendship).where(
+            ((Friendship.user_username == current_user.username) | 
+             (Friendship.friend_username == current_user.username)) &
+            (Friendship.status == FriendshipStatus.accepted)
+        )
+    ).all()
+    
+    valid_friends = set()
+    for f in friendships:
+        ami = f.friend_username if f.user_username == current_user.username else f.user_username
+        valid_friends.add(ami)
+        
+    users_to_compare = [current_user.username]
+    if friends:
+        for friend in friends:
+            if friend in valid_friends:
+                users_to_compare.append(friend)
+
+    # récupération de TOUTES les stats avec filtre de date
+    results = []
+    for username in users_to_compare:
+        player = session.get(Player, username)
+        
+        # Le front veut savoir qui est qui
+        if username == current_user.username:
+            player_name = "Me"
+        else:
+            player_name = player.name if player and player.name else username
+        
+        monthly_stats = calculate_player_stats(username, session, since_date=first_day_of_month)
+        
+        results.append(
+            MonthlyComparisonData(
+                username=username,
+                player_name=player_name,
+                stats=monthly_stats
+            )
+        )
+        
+    return results
 
 
 

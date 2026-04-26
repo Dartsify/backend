@@ -106,6 +106,8 @@ class PlayerStats(BaseModel):
     total_180s: int = 0
     total_100_plus: int = 0 # Nombre de fois où le joueur a fait 100 points ou plus en un tour (3 fléchettes)         
     cursed_target: Optional[str] = None # La zone la moins visée 
+    
+    favorite_play_location: Optional[str] = None 
 
 
 #Modele pour changer le mot de passe
@@ -170,3 +172,5 @@ class HitData(BaseModel):
 # Modèle de réponse finale qui contient la liste
 class ZoneStatsResponse(BaseModel):
     hit_distribution: List[HitData]
+    
+    
