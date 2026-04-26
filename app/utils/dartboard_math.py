@@ -84,3 +84,30 @@ def get_score_and_multiplier(x: float, y: float, camera_id: int) -> tuple[int, i
         return base_score, 2
     else:
         return base_score, 1
+
+
+# Ajuste les légères différences de calibrage (centre et zoom) post-homographie
+# pour aligner tous les points sur le référentiel de la Caméra 1. pour envoyer au front 
+def map_to_master_camera(x: float, y: float, camera_id: int) -> tuple[float, float]:
+    
+    # Si c'est déjà la caméra 1 (ou non défini), on ne touche à rien
+    if camera_id == 1 or camera_id is None or camera_id not in CAMERAS_CALIBRATION:
+        return x, y 
+
+    calib = CAMERAS_CALIBRATION[camera_id]
+    master_calib = CAMERAS_CALIBRATION[1]
+
+    #  distance par rapport à son propre centre
+    dx = x - calib["CENTER_X"]
+    dy = y - calib["CENTER_Y"]
+
+    # ajuste la micro-différence d'échelle (ex: 247 / 245 = 1.008)
+    scale_ratio = master_calib["R_DOUBLE_OUTER"] / calib["R_DOUBLE_OUTER"]
+    dx *= scale_ratio
+    dy *= scale_ratio
+
+    # replace ce point par rapport au centre de la Caméra 1
+    final_x = dx + master_calib["CENTER_X"]
+    final_y = dy + master_calib["CENTER_Y"]
+
+    return round(final_x, 1), round(final_y, 1)
