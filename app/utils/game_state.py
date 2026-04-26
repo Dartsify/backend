@@ -1,4 +1,7 @@
 from sqlmodel import Session, select, func
+
+from datetime import datetime, timedelta, timezone
+
 from app.models.game import Game, GameStatus
 from app.models.target import Target
 from app.models.throw import Throw
@@ -129,3 +132,31 @@ def build_base_game_state(game_id: int, session: Session) -> dict:
     }
     
     return game_dict
+
+
+
+def cleanup_inactive_games(session: Session):
+    
+    # seuil de 20 minutes
+    timeout_limit = datetime.now(timezone.utc) - timedelta(minutes=20)
+    
+    # cherche les parties "en attente" ou "en cours" qui n'ont pas bougé
+    statement = (
+        select(Game)
+        .where(Game.status.in_([GameStatus.waiting, GameStatus.in_progress]))
+        .where(Game.last_interaction < timeout_limit)
+    )
+    
+    abandoned_games = session.exec(statement).all()
+
+    # ferme une par une
+    for game in abandoned_games:
+        game.status = GameStatus.finished
+        game.end_date = datetime.now(timezone.utc)
+        session.add(game)
+        
+    if abandoned_games:
+        session.commit()
+        import logging
+        logging.getLogger(__name__).info(f"[Nettoyage] {len(abandoned_games)} partie(s) abandonnée(s) ont été clôturées.")        
+
