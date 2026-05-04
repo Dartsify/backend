@@ -198,8 +198,8 @@ async def add_players_to_game(
 def validate_participation(
     game_id: int, 
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)
-):
+    current_user: Player = Depends(get_current_user)):
+    
     participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
     
     if not participation:
