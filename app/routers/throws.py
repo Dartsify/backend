@@ -21,52 +21,10 @@ from app.utils.dartboard_math import get_score_and_multiplier
 from app.utils.led_controller import trigger_led_script # pour lancer les animations LED sur le Raspberry Pi après un bust ou une victoire
 from app.stream import stream_manager, broadcast_game_update # pour envoyer les notifications SSE aux téléphones après chaque lancer
 
+from app.security.raspberry_pi import verify_raspberry_pi # pour sécuriser l'endpoint de réception des lancers, accessible uniquement par le Raspberry Pi autorisé
 
 router = APIRouter(prefix="/throws", tags=["throws (Register only for Raspberry Pi)"])
 logger = logging.getLogger(__name__)
-
-# On dit à FastAPI de chercher un en-tête appelé "X-API-Key" dans la requête
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
-
-
-#verif si bon raspberry
-def verify_raspberry_pi(api_key: str = Security(api_key_header)):
-    if api_key != RASPBERRY_API_KEY:
-        logger.warning("Une machine non autorisée a tenté d'envoyer un lancer !")
-        raise HTTPException(status_code=403, detail="Accès refusé. Matériel non autorisé.")
-    return True
-
-
-#-----------------------------------------------------------------------------------------------
-#code a mettre sur raspberry
-# import requests
-
-# API_URL = "http://127.0.0.1:8000/throws/"
-
-# # La même clé que dans .env 
-# API_KEY = "MaCleSecretePourLePi_Dart123!" 
-
-# payload = {
-#     "game_id": 1,
-#     "player_username": "adri123",
-#     "tour_number": 1,
-#     "dart_number": 1,
-#     "x_position": 2.5,
-#     "y_position": -1.2,
-#     "calculated_score": 60
-# }
-
-# # Le Raspberry Pi met son badge VIP (la clé API) dans l'en-tête
-# headers = {
-#     "X-API-Key": API_KEY
-# }
-
-# # Envoi du lancer a notre backend
-# reponse = requests.post(API_URL, json=payload, headers=headers)
-# print(reponse.json())
-#-----------------------------------------------------------------------------------------------
-
-
 
 
 # Fonction centrale du jeu : elle reçoit les infos d'un lancer, applique les règles du jeu 
@@ -82,8 +40,7 @@ async def process_throw_logic(
     multiplicateur: int, 
     x_pos: float, 
     y_pos: float,
-    camera_id: int | None = None
-) -> Throw:
+    camera_id: int | None = None):
     
     participation = session.get(GameParticipation, {"game_id": game.id, "player_username": joueur_actuel})
     total_points_flechette = points * multiplicateur
