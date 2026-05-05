@@ -760,6 +760,72 @@ def get_monthly_friends_comparison(
 
 
 
+# modèles pour le résumé des stats des amis (juste les parties jouees et les victoires pour graphique simple)
+class BasicStats(BaseModel):
+    total_games_played: int
+    total_wins: int
+
+class FriendStatSummary(BaseModel):
+    username: str
+    player_name: str
+    stats: BasicStats
+
+
+# route pour récupérer un résumé des stats de tous les amis (pour faire un graphique simple de comparaison)
+@router.get("/me/friends/stats_summary", response_model=List[FriendStatSummary])
+def get_friends_stats_summary(
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    #Recup tous les amis du joueur (amis acceptés)
+    friendships = session.exec(
+        select(Friendship).where(
+            ((Friendship.user_username == current_user.username) | 
+             (Friendship.friend_username == current_user.username)) &
+            (Friendship.status == FriendshipStatus.accepted)
+        )
+    ).all()
+    
+    valid_friends = []
+    for f in friendships:
+        ami = f.friend_username if f.user_username == current_user.username else f.user_username
+        valid_friends.append(ami)
+        
+    users_to_compare = [current_user.username] + valid_friends
+    
+    results = []
+    
+    for username in users_to_compare:
+        player = session.get(Player, username)
+        
+        # formatage du nom d'affichage pour le Front
+        if username == current_user.username:
+            player_name = "Me" #pour avoir point de reference dans le graphique
+        else:
+            player_name = player.name if player and player.name else username
+            
+        # calcul des stats 
+        # since_date a raj si ojn veut faire comme dans le monthly_comparison
+        full_stats = calculate_player_stats(username, session)
+        
+        basic_stats = BasicStats(
+            total_games_played=full_stats.total_games_played,
+            total_wins=full_stats.total_wins
+        )
+        
+        results.append(
+            FriendStatSummary(
+                username=username,
+                player_name=player_name,
+                stats=basic_stats
+            )
+        )
+        
+    return results
+
+
+
+
 # import random
 # from pydantic import BaseModel
 
