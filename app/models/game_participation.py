@@ -1,7 +1,7 @@
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List, TYPE_CHECKING, Dict
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 if TYPE_CHECKING:
     from app.models.game import Game
@@ -26,11 +26,11 @@ class GameParticipation(SQLModel, table=True):
     #Par defaut quand on invite qqun, c'est en stand by mais l'hote de la partie sera mis en validated d'office
     status: ValidationStatus = Field(default=ValidationStatus.pending)
 
-    join_date: datetime = Field(default_factory=datetime.utcnow) # L'heure exacte où il rejoint
+    join_date: datetime = Field(default_factory=datetime.now(timezone.utc)) # L'heure exacte où il rejoint
     
-    # Relations ORM (facultative mais pourrait servir pour naviguer)
+    # Relations ORM (qui permet de generer une jointure SQL tout seul en arriere plan, pas besoin de faire une requete supp)
     player: Optional["Player"] = Relationship(back_populates="participations")
-    game: Optional["Game"] = Relationship(back_populates="participations")
+    game: Optional["Game"] = Relationship(back_populates="participations") #grace au back_pop, ca va dans les 2 sens et pas besoin de requete sql trop complexe
     
     
 #Renvoyer pour chaque joueur de la partie

@@ -7,17 +7,20 @@ from app.utils.game_state import build_base_game_state
 
 from fastapi.encoders import jsonable_encoder
 
+#via la doc SSE 
 class GameStreamManager:
     def __init__(self):
         # Un dictionnaire qui associe un ID de partie à une liste de "boîtes aux lettres" (files d'attente)
         self.listeners: Dict[int, List[asyncio.Queue]] = {}
 
 
-    def add_listener(self, game_id: int) -> asyncio.Queue:
+    def add_listener(self, game_id: int):
         if game_id not in self.listeners:
             self.listeners[game_id] = []
+            
         q = asyncio.Queue()
         self.listeners[game_id].append(q)
+        
         return q
 
 
@@ -54,3 +57,5 @@ async def broadcast_game_update(game_id: int, session: Session):
     })
     
     await stream_manager.broadcast(game_id, update_message)
+    
+    

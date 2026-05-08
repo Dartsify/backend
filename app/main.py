@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
     
     # EXTINCTION (Ctrl+C)
     logger.info("Extinction de l'API... Arrêt du timer.")
-    cleaner_task.cancel() # On tue la boucle proprement
+    cleaner_task.cancel() # tue la boucle proprement
     try:
         await cleaner_task
     except asyncio.CancelledError:
@@ -91,7 +91,7 @@ app.add_middleware(
 )
 
 
-#  Transforme les erreurs complexes de Pydantic en un tableau simple et lisible pour le Front-end.
+#  Transforme les erreurs complexes de Pydantic en un tableau simple et lisible pour le Front-end (debug)
 @app.exception_handler(RequestValidationError)
 async def custom_validation_exception_handler(request: Request, exc: RequestValidationError):
     
@@ -101,7 +101,7 @@ async def custom_validation_exception_handler(request: Request, exc: RequestVali
         # récupère le champ qui pose problème (le dernier élément de 'loc', ex: "password")
         field = str(error["loc"][-1]) if error["loc"] else "unknown"
         
-        # On récupère la valeur envoyée par l'utilisateur
+        # récupère la valeur envoyée par l'utilisateur
         value = str(error.get("input", ""))
         
         # nettoie le message (on retire le vilain "Value error, " automatique du au ValueError de player.py)
@@ -114,7 +114,6 @@ async def custom_validation_exception_handler(request: Request, exc: RequestVali
             "message": message
         })
     
-    # On renvoie la réponse au format exact demandé par le Front
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"detail": formatted_errors}

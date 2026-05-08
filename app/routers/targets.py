@@ -1,6 +1,6 @@
 import random
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -93,15 +93,15 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
 
     #controle d'inactivite 
     if active_game:
-        # On calcule le temps écoulé depuis la dernière interaction
-        time_elapsed = datetime.utcnow() - active_game.last_interaction
+        # calcul temps écoulé depuis dernière interaction
+        time_elapsed = datetime.now(timezone.utc) - active_game.last_interaction
         
         # Si ça fait plus de 20 minutes (1200 secondes)
         if time_elapsed > timedelta(minutes=20):
             logger.info(f"La partie {active_game.id} a expiré (inactivité). Clôture automatique.")
             active_game.status = GameStatus.finished # force la fin de la partie
             
-            active_game.end_date = datetime.utcnow() # enregistre la fin de la partie
+            active_game.end_date = datetime.now(timezone.utc) # enregistre la fin de la partie
             trigger_led_script("unused") #lance l'animation de libération de la cible sur le Raspberry Pi
             
             session.add(active_game)
@@ -112,9 +112,8 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
             active_game = None
     
     
-    # prépare la réponse pour le Front
     if active_game:
-        # Scénario A : La cible est OCCUPÉE (salle d'attente ou en train de jouer)
+        # Scénario A : cible OCCUPÉE (salle d'attente ou en train de jouer)
         return TargetStatusRead( 
             id=target.id,
             name=target.name,
@@ -125,7 +124,7 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
             current_game_status=active_game.status # Le front lira "waiting" ou "in_progress"
         )
     else:
-        # Scénario B : La cible est LIBRE (aucune partie, ou la dernière est "finished")
+        # Scénario B : cible LIBRE (aucune partie, ou la dernière est "finished")
         return TargetStatusRead(
             id=target.id,
             name=target.name,

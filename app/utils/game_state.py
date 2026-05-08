@@ -6,7 +6,6 @@ from app.models.game import Game, GameStatus
 from app.models.target import Target
 from app.models.throw import Throw
 from app.utils.darts_logic import get_checkout_suggestion
-from app.utils.dartboard_math import map_to_master_camera
 
 
 # Construit l'état complet de la partie (scores, moyennes, historique).
@@ -74,7 +73,7 @@ def build_base_game_state(game_id: int, session: Session) -> dict:
         else:
             p_dict["checkout_suggestion"] = []
 
-        # HISTORIQUE : Les 3 dernières fléchettes du dernier tour joué
+        # Historique : Les 3 dernières fléchettes du dernier tour joue
         last_turn = session.exec(
             select(func.max(Throw.tour_number))
             .where(Throw.game_id == game.id)
@@ -114,15 +113,14 @@ def build_base_game_state(game_id: int, session: Session) -> dict:
     other_hits = []
     
     for t in all_throws:
-        # On ignore les lancers manuels (X et Y à 0.0)
+        # ignore les lancers manuels (X et Y à 0.0)
         if t.x_position == 0.0 and t.y_position == 0.0:
             continue
             
-        # On convertit les pixels de n'importe quelle caméra 
-        # pour qu'ils correspondent au calque de la Caméra 1 (via la fct)
-        mapped_x, mapped_y = map_to_master_camera(t.x_position, t.y_position, t.camera_id)
-        
-        hit_data = {"x": mapped_x, "y": mapped_y}
+        hit_data = {
+            "x": round(t.x_position, 1), 
+            "y": round(t.y_position, 1)
+        }
         
         # Sépare le joueur actuel des autres
         if t.player_username == game.current_player_username:

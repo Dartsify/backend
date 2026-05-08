@@ -9,7 +9,7 @@ from sqlmodel import Session, select, func, desc, col
 from app.database import get_session
 
 from app.models.player import Player, PlayerCreate, PlayerRead, PlayerUpdate, PlayerPublic, PlayerStats, PasswordUpdate, Friendship, FriendshipStatus, HitData, ZoneStatsResponse
-from app.models.player import FriendRequestResponse, FriendResponse, PlayerProfile
+from app.models.player import FriendRequestResponse, FriendResponse, PlayerProfile, PendingInvitationRead, FriendStatSummary, BasicStats
 from app.models.game import Game, GameStatus
 from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.throw import Throw
@@ -107,14 +107,14 @@ def get_players(
 
 
 
-# #Modifier un joueur (update)-> protégé car ca doit etre son propre profil
+# Modifier un joueur (update)-> protégé car ca doit etre son propre profil
 @router.patch("/me", response_model=PlayerRead)
 def update_current_player(
     player_update: PlayerUpdate,
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
-    # On met à jour uniquement les champs envoyés
+    # maj uniquement les champs envoyés
     update_data = player_update.model_dump(exclude_unset=True)
     current_user.sqlmodel_update(update_data)
 
@@ -211,25 +211,6 @@ def delete_current_player(
 
 
 # Route pour voir ses invitations en attente (notification)
-class PendingInvitationRead(BaseModel):
-    # Les champs de base que tu voulais garder
-    game_id: int
-    game_mode: str
-    
-    host_username: str
-    host_name: str
-    
-    current_score: int
-    final_score: Optional[int] = None
-    position: Optional[int] = None
-    status: str
-    join_date: datetime
-    
-    # new infos
-    target_name: str
-    target_location: str
-
-# Route pour voir ses invitations en attente (notification)
 @router.get("/me/pending", response_model=list[PendingInvitationRead])
 def get_pending_invitations(
     session: Session = Depends(get_session),
@@ -254,7 +235,7 @@ def get_pending_invitations(
         host_name = "Inconnu"
         
         if game and game.participations:
-            # On trie tous les joueurs de cette partie par ordre d'arrivée
+            # tri des joueurs de cette partie par ordre d'arrivée
             participants_chronologiques = sorted(game.participations, key=lambda part: part.join_date)
             
             # L'hôte est toujours le premier (index 0)
@@ -319,7 +300,6 @@ def read_player(username: str,
     if not (is_admin or is_me or is_friend):
         raise HTTPException(status_code=403, detail="Accès refusé. Vous devez être ami pour voir ce profil.")
 
-    # Calculer les stats du joueur
     player_stats = calculate_player_stats(username, session) 
 
     # transforme l'objet DB en dictionnaire pour manipuler les champs
@@ -360,7 +340,7 @@ def get_my_zones_stats(
               (Throw.game_id == GameParticipation.game_id) & 
               (Throw.player_username == GameParticipation.player_username))
         .where(GameParticipation.player_username == current_user.username) # filtre ce joueur
-        .where(GameParticipation.status == ValidationStatus.validated)     # Uniquement les parties validées
+        .where(GameParticipation.status == ValidationStatus.validated)     # Uniquement parties validées
         .group_by(Throw.calculated_score, Throw.multiplier)
         .order_by(desc("hits")) # Trie de la zone la plus touchée à la moins touchée
     ).all()
@@ -403,7 +383,7 @@ def get_my_heatmap(
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
-    # On compte les hits groupés par score ET multiplicateur
+    #compte les hits groupés par score ET multiplicateur
     zones_data = session.exec(
         select(Throw.calculated_score, Throw.multiplier, func.count(Throw.id).label("count"))
         .join(GameParticipation, 
@@ -468,7 +448,7 @@ def get_my_friends(
             ami = f.user_username
             
         friend_usernames.append(ami)
-        friend_dates[ami] = f.created_at # On sauvegarde la date de cette amitié
+        friend_dates[ami] = f.created_at # sauvegarde date de cette amitié
 
     if not friend_usernames:
         return [] # pas d'amis
@@ -500,12 +480,12 @@ def get_my_friends(
             .join(Game)
             .where(GameParticipation.player_username == friend.username)
             .where(GameParticipation.game_id.in_(my_game_ids_query))
-            .where(Game.status == GameStatus.finished) # On ne compte que les parties terminées
+            .where(Game.status == GameStatus.finished) #compte que les parties terminées
         ).all()
         
         friend_dict["games_played_together"] = len(games_together_ids)
         
-        # Nombre de victoires de current_user contre cet ami
+        #nbr de victoires de current_user contre cet ami
         games_won = 0
         if games_together_ids:
             games_won = session.exec(
@@ -558,7 +538,7 @@ def send_friend_request(
             session.commit()
             
             
-    # On crée la demande en statut "pending"
+    # crée la demande en statut "pending"
     new_request = Friendship(
         user_username=current_user.username,
         friend_username=friend_username,
@@ -607,7 +587,7 @@ def reject_friend_request(
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
     
-    # On cherche la demande en attente
+    #cherche la demande en attente
     friend_request = session.exec(
         select(Friendship).where(
             (Friendship.user_username == requester_username) &
@@ -703,7 +683,7 @@ class MonthlyComparisonData(BaseModel):
     
 
 # Renvoie TOUTES les statistiques du mois en cours
-# pour l'utilisateur connecté et une liste d'amis choisis.
+# pour l'utilisateur connecté et une liste d'amis choisis
 @router.get("/me/friends/monthly_comparison", response_model=List[MonthlyComparisonData])
 def get_monthly_friends_comparison(
     friends: List[str] = Query(default=[]),
@@ -714,7 +694,7 @@ def get_monthly_friends_comparison(
     now = datetime.now(timezone.utc)
     first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    # Sécurité : Vérifier que les amis demandés sont de vrais amis
+    # Sécu : Véri que les amis demandés sont de vrais amis
     friendships = session.exec(
         select(Friendship).where(
             ((Friendship.user_username == current_user.username) | 
@@ -734,14 +714,14 @@ def get_monthly_friends_comparison(
             if friend in valid_friends:
                 users_to_compare.append(friend)
 
-    # récupération de TOUTES les stats avec filtre de date
+    # récup de TOUTES les stats avec filtre de date
     results = []
     for username in users_to_compare:
         player = session.get(Player, username)
         
         # Le front veut savoir qui est qui
         if username == current_user.username:
-            player_name = "Me"
+            player_name = "Me" #vu que comparaison entre sois -meme et amis --> "Me" pour le point de référence dans le graphique
         else:
             player_name = player.name if player and player.name else username
         
@@ -758,17 +738,6 @@ def get_monthly_friends_comparison(
     return results
 
 
-
-
-# modèles pour le résumé des stats des amis (juste les parties jouees et les victoires pour graphique simple)
-class BasicStats(BaseModel):
-    total_games_played: int
-    total_wins: int
-
-class FriendStatSummary(BaseModel):
-    username: str
-    player_name: str
-    stats: BasicStats
 
 
 # route pour récupérer un résumé des stats de tous les amis (pour faire un graphique simple de comparaison)
@@ -805,7 +774,7 @@ def get_friends_stats_summary(
             player_name = player.name if player and player.name else username
             
         # calcul des stats 
-        # since_date a raj si ojn veut faire comme dans le monthly_comparison
+        # since_date a raj si on veut faire comme dans le monthly_comparison
         full_stats = calculate_player_stats(username, session)
         
         basic_stats = BasicStats(
@@ -823,45 +792,3 @@ def get_friends_stats_summary(
         
     return results
 
-
-
-
-# import random
-# from pydantic import BaseModel
-
-# # Le modèle que le Front envoie (juste le prénom tapé sur l'écran pour l'invité qui n'a pas de compte)
-# class GuestCreate(BaseModel):
-#     name: str 
-
-# #route pour créer un compte invité (sans email ni mot de passe) -> pas besoin de token, n'importe qui devant la borne peut le faire
-# @router.post("/guest", response_model=PlayerPublic)
-# def create_guest_account(
-#     guest_in: GuestCreate, 
-#     session: Session = Depends(get_session)):
-    
-#     # Générer un username unique pour cet invité
-#     while True:
-#         random_suffix = random.randint(10000, 99999)
-#         guest_username = f"guest_{random_suffix}"
-        
-#         #verif si pseudo déjà pris
-#         existing_user = session.get(Player, guest_username)
-#         if not existing_user:
-#             break
-
-#     # creer le compte fantôme da,ns db
-#     db_guest = Player(
-#         username=guest_username,
-#         name=guest_in.name,
-#         is_guest=True, 
-#         email=None,
-#         hashed_password=None
-#     )
-    
-#     session.add(db_guest)
-#     session.commit()
-#     session.refresh(db_guest)
-    
-#     logger.info(f"Compte invité créé : {guest_username} ({guest_in.name})")
-    
-#     return db_guest

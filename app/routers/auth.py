@@ -31,29 +31,29 @@ def login(response: Response,
             ]
         )
 
-    # Cas n2 : Le pseudo existe, mais le mot de passe est faux
+    # Cas 2 : Le pseudo existe, mais le mot de passe est faux
     if not verify_password(form_data.password, player.hashed_password):
         raise HTTPException(
             status_code=401,
             detail=[
                 {
                     "field": "password",
-                    "value": form_data.password, # (en prod, évite de renvoyer le mdp en clair, mais pour le dev c'est ok)
+                    "value": form_data.password,
                     "message": "Le mot de passe est incorrect."
                 }
             ]
         )
 
-    #Si tout OK, on crée le token
+    #Si tout OK : crée le token
     access_token = create_access_token({"sub": player.username})
 
-    # On force le navigateur de Mathias à enregistrer un cookie sécurisé
+    # pour enregitrer le token dans un cookie sécurisé (pour que le client puisse l'envoyer automatiquement à chaque requête)
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,  # Protège contre les failles XSS (JavaScript ne peut pas le voler)
         samesite="lax", # Autorise l'envoi du cookie pour les requêtes sur le même réseau
-        secure=False,   # IMPORTANT : Reste sur False tant que en HTTP (sans SSL/HTTPS)
+        secure=False,   # IMPORTANT : Reste sur False tant que en HTTP (sans SSL/HTTPS) -> a changer a l'avenir en true pour prod
         max_age=86400   # Le cookie expirera dans 24h (86400 secondes)
     )
 

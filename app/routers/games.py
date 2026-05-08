@@ -3,8 +3,10 @@ import json
 import random
 import logging
 import asyncio
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
+
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
@@ -42,20 +44,19 @@ def create_new_game(
     
     logger.info(f"Le joueur {current_user.username} tente de lancer un {game_in.mode} sur la cible {game_in.target_id}")
 
-    # Verif que cible scannée existe bien dans la DB
+    # Verif que cible scannée existe dans la DB
     target = session.get(Target, game_in.target_id)
     if not target:
         raise HTTPException(status_code=404, detail="Cible introuvable. Veuillez scanner un QR Code valide.")
 
-    # secu: On cherche s'il y a déjà une partie non terminée sur cette cible
+    # secu: cherche s'il y a déjà une partie non terminée sur cette cible
     active_game = session.exec(
         select(Game)
         .where(Game.target_id == game_in.target_id)
-        .where(Game.status != GameStatus.finished)).first() # On bloque si une partie est pas finished 
+        .where(Game.status != GameStatus.finished)).first() # bloque si une partie est pas finished 
 
     if active_game:
         logger.warning(f"La cible {game_in.target_id} est déjà occupée par la partie {active_game.id}.")
-        # On renvoie l'erreur au format tableau pour le Front
         raise HTTPException(
             status_code=400, 
             detail=[
@@ -127,10 +128,12 @@ async def add_players_to_game(
     if game.status != GameStatus.waiting:
         raise HTTPException(status_code=400, detail="Impossible de rejoindre une partie terminée ou en cours.")
 
+    # secu: l'utilisateur doit faire partie de la game pour inviter
     host_participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
     if not host_participation:
         raise HTTPException(status_code=403, detail="Vous ne pouvez pas inviter de joueurs dans une partie à laquelle vous ne participez pas.")
 
+    #seul l'hote a le droit d'ajouter des amis
     if game.current_player_username != current_user.username:
         raise HTTPException(status_code=403, detail="Seul l'hôte de la partie peut inviter des amis.")
     
@@ -148,6 +151,7 @@ async def add_players_to_game(
         if not friend:
             continue
 
+        #verif si amis ou non (on n'invite que les amis)
         is_friend = session.exec(
             select(Friendship).where(
                 (((Friendship.user_username == current_user.username) & (Friendship.friend_username == friend.username)) |
@@ -163,6 +167,7 @@ async def add_players_to_game(
         if existing_participation:
             continue
 
+        #creat
         new_participation = GameParticipation(
             game_id=game.id,
             player_username=friend.username,
@@ -173,7 +178,7 @@ async def add_players_to_game(
         added_players.append(friend.username)
 
     if added_players:
-        game.last_interaction = datetime.utcnow()
+        game.last_interaction = datetime.now(timezone.utc)#maj du chrono d'inactivité
         session.add(game)
         session.commit()
         
@@ -207,6 +212,7 @@ def validate_participation(
     if participation.status == ValidationStatus.validated:
         raise HTTPException(status_code=400, detail="Partie déjà validée.")
 
+    #passe le statu en valideé pour que le joueur puisse jouer et que sa partie compte pour les stats
     participation.status = ValidationStatus.validated
     session.add(participation)
     session.commit()
@@ -222,8 +228,8 @@ def validate_participation(
 def reject_participation(
     game_id: int, 
     session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)
-):
+    current_user: Player = Depends(get_current_user)):
+    
     participation = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
     
     if not participation:
@@ -250,7 +256,7 @@ def get_game_state(
     session: Session = Depends(get_session),
     current_user: Player = Depends(get_current_user)):
 
-    # On récupère la base commune
+    # récup la base commune
     game_dict = build_base_game_state(game_id, session)
     if not game_dict:
         raise HTTPException(status_code=404, detail="Partie introuvable.")
@@ -289,7 +295,7 @@ def get_all_games(
         # L'admin a accès à TOUTES les parties
         query = select(Game).order_by(Game.creation_date.desc())
     else:
-        # Le joueur ne voit que SES parties (jointure)
+        # Le joueur ne voit que SES parties 
         query = (
             select(Game)
             .join(GameParticipation)
@@ -297,7 +303,6 @@ def get_all_games(
             .order_by(Game.creation_date.desc())
         )
     
-    #filtrage multiple
     if status:
         # ".in_()" est la commande SQL pour dire "Si le statut du jeu FAIT PARTIE de la liste demandée"
         query = query.where(Game.status.in_(status))
@@ -331,7 +336,7 @@ def get_all_games(
             winner = next((p for p in game.participations if p.position == 1), None)
             if winner:
                 game_dict["winner_username"] = winner.player_username
-                # On essaie de récupérer le vrai prénom, sinon met "Inconnu"
+                # essaie de récupérer le vrai prénom, sinon met "Inconnu"
                 game_dict["winner_name"] = winner.player.name if winner.player else "Joueur inconnu"
                 
         enriched_games.append(game_dict)
@@ -373,13 +378,13 @@ async def launch_game(
     game.status = GameStatus.in_progress
     
     # fige l'heure exacte du début de la partie
-    game.start_date = datetime.utcnow()
+    game.start_date = datetime.now(timezone.utc)
     
     trigger_led_script("start_round")
     logger.info(f" Lancement de la partie {game_id} ! Mode: {game.mode}. Que le meilleur gagne.") #lance l'animation de lancement sur le Raspberry Pi
     
     #chrono reinitialise
-    game.last_interaction = datetime.utcnow()
+    game.last_interaction = datetime.now(timezone.utc)
     
     session.add(game)
     session.commit()
@@ -415,7 +420,7 @@ async def join_game(
 
     #scenario A : le joueur est connecte a son compte
     if current_user:
-        # Sécu : Vérifie s'il n'est pas DÉJÀ dans la partie
+        # Sécu : verif s'il n'est pas DÉJÀ dans la partie
         existing_p = session.get(GameParticipation, {"game_id": game_id, "player_username": current_user.username})
         if existing_p:
             return {"message": "Vous êtes déjà dans la salle d'attente !"}
@@ -458,7 +463,7 @@ async def join_game(
     session.add(new_participation)
 
     # chrono d'inactivité
-    game.last_interaction = datetime.utcnow()
+    game.last_interaction = datetime.now(timezone.utc)
     session.add(game)
     session.commit()
     
@@ -466,11 +471,6 @@ async def join_game(
 
     logger.info(f"{display_name} a rejoint la partie {game.id}.")
     
-    #diffusion en temps reel dans lobby :
-    #détermine qui est joueur pour requête (le current_user ou notre nouveau guest)
-    user_for_state = current_user if current_user else db_guest
-    
-
     #  crie dans"le mégaphone"pour tous ceux qui sont dans le lobby
     await broadcast_game_update(game_id, session)
     
@@ -599,7 +599,7 @@ async def change_game_mode(
         session.add(participation)
 
     
-    game.last_interaction = datetime.utcnow()
+    game.last_interaction = datetime.now(timezone.utc) #maj du chrono d'inactivité
     session.add(game)
     session.commit()
 
@@ -632,11 +632,11 @@ async def game_stream(game_id: int, request: Request):
                 if await request.is_disconnected():
                     break
                 
-                # On attend qu'un message arrive dans la boîte (ex: une fléchette lancée)
+                #  attend qu'un message arrive dans la boîte (ex: une fléchette lancée)
                 # asyncio.wait_for permet de verifier regulierement si client toujours la
                 try:
                     message = await asyncio.wait_for(q.get(), timeout=1.0) #await sur la boîte aux lettres, timeout d'1 seconde pour vérifier régulièrement la connexion du client
-                    # On formate selon la norme SSE exacte : "data: le_message\n\n"
+                    # formate selon la norme SSE exacte : "data: le_message\n\n"
                     yield f"data: {message}\n\n"
                 except asyncio.TimeoutError:
                     # Timeout d'1 seconde normal, on recommence la boucle pour vérifier request.is_disconnected()
@@ -646,7 +646,7 @@ async def game_stream(game_id: int, request: Request):
             # Si le téléphone (appareil) coupe la connexion, on supprime sa "boîte aux lettres"
             stream_manager.remove_listener(game_id, q)
 
-    # On renvoie la réponse au format 'text/event-stream'
+    # renvoie la réponse au format 'text/event-stream'
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
@@ -677,7 +677,7 @@ async def leave_game(
         # libère la cible
         game.status = GameStatus.finished
         
-        game.end_date = datetime.utcnow() # Fin prématurée de la partie
+        game.end_date = datetime.now(timezone.utc) # Fin prématurée de la partie
         trigger_led_script("unused") #lance l'animation de libération de la cible sur le Raspberry Pi
         
         session.add(game)
@@ -686,7 +686,6 @@ async def leave_game(
         logger.info(f"L'hôte {current_user.username} a quitté. La partie {game_id} est clôturée.")
         
         # previens tous via le SSE que la partie est finie
-        # SSE : Un seul appel propre
         await broadcast_game_update(game_id, session)
         
         trigger_led_script("unused") #lance l'animation de libération de la cible sur le Raspberry Pi
@@ -738,7 +737,7 @@ async def add_guests_to_game(
     if not host_participation:
         raise HTTPException(status_code=403, detail="Vous ne participez pas à cette partie.")
         
-    # Sécurité : Est-ce que le joueur est bien l'hôte ? (le current_player de la table Game)
+    # secu : Est-ce que le joueur est bien l'hôte ? (le current_player de la table Game)
     if game.current_player_username != current_user.username:
         raise HTTPException(status_code=403, detail="Seul l'hôte de la partie peut ajouter des invités manuellement.")
 
@@ -783,7 +782,7 @@ async def add_guests_to_game(
         })
 
     if added_guests:
-        game.last_interaction = datetime.utcnow()
+        game.last_interaction = datetime.now(timezone.utc) #maj du chrono d'inactivité
         session.add(game)
         session.commit()
         logger.info(f"Les invités {added_guests} ont été ajoutés à la partie {game.id} par {current_user.username}.")
@@ -819,7 +818,7 @@ def get_my_game_history(
         .where(Game.status == GameStatus.finished) # passé
     )
 
-    # Filtre par lieu (Recherche textuelle sur le nom ou la ville de la cible)
+    # filtre par lieu (recherche textuelle sur le nom ou la ville de la cible)
     if location:
         query = query.join(Target, Game.target_id == Target.id).where(
             col(Target.location).ilike(f"%{location}%") | 
@@ -829,7 +828,6 @@ def get_my_game_history(
     # Filtre par amis (Parties jouées avec X et Y)
     if friends:
         for friend_username in friends:
-            # On cherche les games où l'ami a joué, et on filtre notre requête principale dessus
             query = query.where(
                 col(Game.id).in_(
                     select(GameParticipation.game_id)
@@ -837,7 +835,7 @@ def get_my_game_history(
                 )
             )
 
-    # Tri par date
+    #tri par date
     query = query.order_by(col(Game.end_date).desc())
 
     results = session.exec(query).all()
@@ -847,15 +845,12 @@ def get_my_game_history(
 
 
 
-from typing import Dict, Any
 
-from typing import Dict, List
-from pydantic import BaseModel
 
 class ZoneStatBreakdown(BaseModel):
     zone: str
     total_hits: int
-    number: Dict[str, int] # Remplacé 'breakdown' par 'number'
+    number: Dict[str, int] 
 
 class GameStatsResponse(BaseModel):
     game_id: int
@@ -881,7 +876,7 @@ def get_single_game_stats(
     hits_query = session.exec(
         select(Throw.calculated_score, Throw.multiplier, Throw.player_username, func.count(Throw.id).label("hits"))
         .where(Throw.game_id == game_id)
-        .where(Throw.x_position != 0.0) # On ignore les lancers manuels pour ces stats de précision
+        .where(Throw.x_position != 0.0) # ignore les lancers manuels pour ces stats de précision
         .group_by(Throw.calculated_score, Throw.multiplier, Throw.player_username)
     ).all()
 
@@ -904,7 +899,7 @@ def get_single_game_stats(
             
         display_name = player_mapping.get(username, username)
 
-        # Si c'est la première fois qu'on croise cette zone, on l'initialise
+        # Si c'est première fois qu'on croise cette zone -> initialise
         if label not in zones_dict:
             zones_dict[label] = {
                 "zone": label, 

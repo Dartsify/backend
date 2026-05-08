@@ -2,6 +2,9 @@ from sqlmodel import SQLModel, create_engine, Session, select
 from fastapi import Depends
 from typing import Annotated
 
+from datetime import datetime, timedelta, timezone
+import random
+
 from app.models.target import Target
 
 #pour creation de l'admin
@@ -29,12 +32,12 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 #Creation de l'admin initial
 def create_initial_admin():
-    # importe les modèles et la sécurité ici pour éviter les fameuses erreurs "d'import circulaire" au démarrage (debug)
+    # importe les modèles et la sécurité ici pour éviter les erreurs "d'import circulaire" au démarrage (debug)
     from app.models.player import Player
     from app.security.auth import hash_password
 
     with Session(engine) as session:
-        # On vérifie si admin existe déjà
+        # vérif si admin existe déjà
         admin_user = session.exec(select(Player).where(Player.username == ADMIN_USERNAME)).first()
         
         if not admin_user:
@@ -65,7 +68,6 @@ def seed_test_data():
         ]
 
         for cible_data in cibles_test:
-            # On vérifie si la cible existe déjà pour éviter que ça plante si on n'a pas supprimé la DB
             if not session.get(Target, cible_data["id"]):
                 new_target = Target(
                     id=cible_data["id"],
@@ -98,8 +100,7 @@ def seed_test_data():
         
         
 
-from datetime import datetime, timedelta
-import random
+
 def seed_random_games_and_throws():
     # Imports locaux pour éviter les imports circulaires
     from app.models.game import Game, GameStatus, GameModeAllowed
@@ -127,7 +128,7 @@ def seed_random_games_and_throws():
         # Créer 5 parties terminées dans le passé (entre il y a 1 et 30 jours)
         for game_idx in range(5):
             target = random.choice(targets)
-            date_partie = datetime.utcnow() - timedelta(days=random.randint(1, 30))
+            date_partie = datetime.now(timezone.utc) - timedelta(days=random.randint(1, 30))
 
             new_game = Game(
                 mode=GameModeAllowed.mode_501,
@@ -165,7 +166,6 @@ def seed_random_games_and_throws():
                 for dart_idx in range(15):
                     dart_num = (dart_idx % 3) + 1
                     
-                    # On truque un peu les probabilités pour avoir des stats réalistes
                     # (Beaucoup de 20 et de 19, un peu de 1 et 5 à côté, quelques Bull)
                     scores_possibles = [
                         20, 19, 18, 17, 16, 15, # Les cibles favorites (Très fréquent)

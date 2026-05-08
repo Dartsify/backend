@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List, TYPE_CHECKING
 
@@ -16,11 +16,11 @@ class GameStatus(str, Enum):#version plus propre pour determine le statut de la 
 
 class Game(SQLModel, table=True):
     
-    id: Optional[int] = Field(default=None, primary_key=True)#En mettant id: Optional[int] = Field(default=None, primary_key=True), tu dis à Python : "Laisse-le vide pour l'instant, c'est la base de données qui s'en occupera quand ce sera le moment de le sauvegarder."
-    mode: str = Field(index=True) #mode obligatoire pour jouer
+    id: Optional[int] = Field(default=None, primary_key=True)#En mettant id: Optional[int] = Field(default=None, primary_key=True), ca dit à Python : "Laisse-le vide pour l'instant, c'est la base de données qui s'en occupera quand ce sera le moment de le sauvegarder."
+    mode: str = Field(index=True) #mode obligatoire pour jouer 
     
     #quand lobby ouvert (automatique a la creation)
-    creation_date: datetime = Field(default_factory=datetime.utcnow) 
+    creation_date: datetime = Field(default_factory=datetime.now(timezone.utc)) 
     
     #quand partie est lancee(/start)
     start_date: Optional[datetime] = None
@@ -39,7 +39,7 @@ class Game(SQLModel, table=True):
     current_dart_number: int = Field(default=1)
     
     #chrono d'inactivite
-    last_interaction: datetime = Field(default_factory=datetime.utcnow)
+    last_interaction: datetime = Field(default_factory=datetime.now(timezone.utc))
     
     # relation optionnelle pour SQLAlchemy / ORM
     target: Optional["Target"] = Relationship(back_populates="games")
@@ -54,8 +54,8 @@ class GameModeAllowed(str, Enum):
     mode_perso = "perso"
 
 
-# ce que tel du joueur envoie quand il scanne la cible et choisit le mode
-class GameCreate(SQLModel):
+# ce que tel du joueur envoie quand il scanne la cible et choisit le mode 
+class GameCreate(SQLModel): 
     target_id: str
     mode: GameModeAllowed = GameModeAllowed.mode_501 #pour dire que par défaut on lance un 501
     

@@ -11,7 +11,7 @@ from app.models.target import Target
 
 
 def calculate_player_stats(username: str, session: Session, since_date: Optional[datetime]= None) -> PlayerStats:
-# Parties jouées
+    # Parties jouées
     q_games = select(func.count()).select_from(GameParticipation)
     if since_date:
         q_games = q_games.join(Game).where(Game.end_date >= since_date)

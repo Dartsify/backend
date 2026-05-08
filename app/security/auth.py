@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
@@ -27,7 +27,7 @@ def hash_password(password: str) -> str:
     pwd_bytes = password[:72].encode('utf-8')
     salt = bcrypt.gensalt()
     hashed_password = bcrypt.hashpw(pwd_bytes, salt)
-    # On retourne une string pour la stocker facilement dans la base de données
+    
     return hashed_password.decode('utf-8')
 
 
@@ -36,18 +36,20 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     password_byte_enc = plain_password[:72].encode('utf-8')
     hashed_password_byte_enc = hashed_password.encode('utf-8')
+    
     return bcrypt.checkpw(password_byte_enc, hashed_password_byte_enc)
 
 
 
 
-def create_access_token(data: dict):
+def create_access_token(data: dict) -> str:
     to_encode = data.copy()
     # temps d'exp du token 
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    
     return encoded_jwt
 
 
@@ -111,15 +113,14 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=
 
 # fonction qui va servir pour les routes où le token est optionnel (ex: rejoindre une partie en tant qu'invité)
 def get_current_user_optional(
-    token: Optional[str] = Depends(get_token_from_header_or_cookie), # <-- On utilise notre extracteur ici aussi
+    token: Optional[str] = Depends(get_token_from_header_or_cookie), 
     session: Session = Depends(get_session)):
     
-    # S'il n'y a pas de token envoyé (ni Header, ni Cookie), c'est un invité 
+    # Si pas de token envoyé (ni Header, ni Cookie), c'est un invité 
     if not token:
         return None 
         
     try:
-        # On réutilise la fonction principale
         return get_current_user(token=token, session=session) 
     except Exception:
         # Si le token est invalide ou expiré -> invité

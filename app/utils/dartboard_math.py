@@ -5,68 +5,38 @@ SECTORS = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5
 
 
 
-CAMERAS_CALIBRATION = { # Ces valeurs sont à ajuster en fonction de la configuration réelle de chaque caméra (1 2 et 3)
-    1: {
-        "CENTER_X": 624,
-        "CENTER_Y": 325,
-        "R_BULL_INNER": 8,
-        "R_BULL_OUTER": 22,
-        "R_TRIPLE_INNER": 138,
-        "R_TRIPLE_OUTER": 151,
-        "R_DOUBLE_INNER": 227,
-        "R_DOUBLE_OUTER": 247
-    },
-    
-    2: {
-        
-        "CENTER_X": 631,
-        "CENTER_Y": 332,
-        "R_BULL_INNER": 8,
-        "R_BULL_OUTER": 22,
-        "R_TRIPLE_INNER": 138,
-        "R_TRIPLE_OUTER": 152,
-        "R_DOUBLE_INNER": 227,
-        "R_DOUBLE_OUTER": 245
-    },
-    
-    3: {
-        
-        "CENTER_X": 622,
-        "CENTER_Y": 333,
-        "R_BULL_INNER": 12,
-        "R_BULL_OUTER": 20,
-        "R_TRIPLE_INNER": 137,
-        "R_TRIPLE_OUTER": 150,
-        "R_DOUBLE_INNER": 229,
-        "R_DOUBLE_OUTER": 243
-    }
-}
+# Constantes universelles de calibration (post-homographie et basées sur les rayons identifiés)
+CENTER_X = 642
+CENTER_Y = 356
+R_BULL_INNER = 8
+R_BULL_OUTER = 24
+R_TRIPLE_INNER = 139
+R_TRIPLE_OUTER = 155
+R_DOUBLE_INNER = 235
+R_DOUBLE_OUTER = 251
 
 
 
-
+#calcul du score et multiplicateur en fct de X et Y (on garde le cam id pour tester si probleme sur une camera en particulier)
 def get_score_and_multiplier(x: float, y: float, camera_id: int) -> tuple[int, int]:
     
-    # récupération des dimensions de la bonne caméra (fallback sur la 1 si erreur)
-    calib = CAMERAS_CALIBRATION.get(camera_id, CAMERAS_CALIBRATION[1])
+    # Calcul de distance par rapport au centre de la cible
+    dx = x - CENTER_X
+    dy = CENTER_Y - y # Y=0 en haut a gauche
     
-    # Calcul de distance par rapport au centre spécifique de cette caméra
-    dx = x - calib["CENTER_X"]
-    dy = calib["CENTER_Y"] - y # Y=0 en haut a gauche
-    
-    # Calcul de la distance grâce à Pythagore
+    # Calcul de distance grâce à Pythagore
     distance = math.hypot(dx, dy)
 
     # Vérification du centre et sortie de cible avant de calculer l'angle
-    if distance <= calib["R_BULL_INNER"]:
+    if distance <= R_BULL_INNER :
         return 50, 2  # Double Bull (multiplicateur = 2)
-    if distance <= calib["R_BULL_OUTER"]:
+    if distance <= R_BULL_OUTER:
         return 25, 1  # Simple Bull 
-    if distance > calib["R_DOUBLE_OUTER"]:
+    if distance > R_DOUBLE_OUTER:
         return 0, 1   # Hors cible (Raté)
 
     # Calcul d'angle (secteur)
-    # atan2 donne l'angle par rapport à la droite (3h). On le convertit en degrés
+    # atan2 donne l'angle par rapport à la droite (3h) -> converti en degrés
     angle_rad = math.atan2(dy, dx)
     angle_deg = math.degrees(angle_rad)
     
@@ -78,36 +48,34 @@ def get_score_and_multiplier(x: float, y: float, camera_id: int) -> tuple[int, i
     base_score = SECTORS[sector_index]
 
     # Vérification des multiplicateurs
-    if calib["R_TRIPLE_INNER"] <= distance <= calib["R_TRIPLE_OUTER"]:
+    if R_TRIPLE_INNER <= distance <= R_TRIPLE_OUTER:
         return base_score, 3 
-    elif calib["R_DOUBLE_INNER"] <= distance <= calib["R_DOUBLE_OUTER"]:
+    elif R_DOUBLE_INNER <= distance <= R_DOUBLE_OUTER:
         return base_score, 2
     else:
         return base_score, 1
 
 
-# Ajuste les légères différences de calibrage (centre et zoom) post-homographie
-# pour aligner tous les points sur le référentiel de la Caméra 1. pour envoyer au front 
-def map_to_master_camera(x: float, y: float, camera_id: int) -> tuple[float, float]:
+# # Ajuste les légères différences de calibrage (centre et zoom) post-homographie
+# # pour aligner tous les points sur le référentiel de la Caméra 1. pour envoyer au front  ---->> Plus besoin car homographie améliorée et universelle
+# def map_to_master_camera(x: float, y: float, camera_id: int) -> tuple[float, float]:
     
-    # Si c'est déjà la caméra 1 (ou non défini), on ne touche à rien
-    if camera_id == 1 or camera_id is None or camera_id not in CAMERAS_CALIBRATION:
-        return x, y 
+#     # Si c'est déjà la caméra 1 (ou non défini), on ne touche à rien
+#     if camera_id == 1 or camera_id is None or camera_id not in CAMERAS_CALIBRATION:
+#         return x, y 
 
-    calib = CAMERAS_CALIBRATION[camera_id]
-    master_calib = CAMERAS_CALIBRATION[1]
+#     calib = CAMERAS_CALIBRATION[camera_id]
+#     master_calib = CAMERAS_CALIBRATION[1]
 
-    #  distance par rapport à son propre centre
-    dx = x - calib["CENTER_X"]
-    dy = y - calib["CENTER_Y"]
+#     dx = x - calib["CENTER_X"]
+#     dy = y - calib["CENTER_Y"]
 
-    # ajuste la micro-différence d'échelle (ex: 247 / 245 = 1.008)
-    scale_ratio = master_calib["R_DOUBLE_OUTER"] / calib["R_DOUBLE_OUTER"]
-    dx *= scale_ratio
-    dy *= scale_ratio
+#     # ajuste la micro-différence d'échelle (ex: 247 / 245 = 1.008)
+#     scale_ratio = master_calib["R_DOUBLE_OUTER"] / calib["R_DOUBLE_OUTER"]
+#     dx *= scale_ratio
+#     dy *= scale_ratio
 
-    # replace ce point par rapport au centre de la Caméra 1
-    final_x = dx + master_calib["CENTER_X"]
-    final_y = dy + master_calib["CENTER_Y"]
+#     final_x = dx + master_calib["CENTER_X"]
+#     final_y = dy + master_calib["CENTER_Y"]
 
-    return round(final_x, 1), round(final_y, 1)
+#     return round(final_x, 1), round(final_y, 1)

@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel, Field, Relationship
 from pydantic import EmailStr, field_validator, BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, TYPE_CHECKING
 from enum import Enum
 
@@ -13,12 +13,12 @@ if TYPE_CHECKING:
 
 # le fichier throw.py a besoin d'importer Game pour dire qu'un lancer appartient à une partie.
 
-# Le crash : Python lit game.py, qui lui dit d'aller lire throw.py, qui lui dit de retourner lire game.py... Python tourne en boucle et l'application plante instantanément !
+# Le crash : Python lit game.py, qui lui dit d'aller lire throw.py, qui lui dit de retourner lire game.py... Python tourne en boucle et l'application plante 
 
-# La solution magique : TYPE_CHECKING
-# C'est une variable spéciale de Python qui vaut False quand ton application tourne en vrai, mais qui vaut True pour l'éditeur de code (VS Code) quand il inspecte ton code.
-# En mettant les imports dans le bloc if TYPE_CHECKING:, on triche :
-# l'éditeur de code lit l'import et peut te faire l'auto-complétion intelligente.
+# La solution : TYPE_CHECKING
+# C'est une variable spéciale de Python qui vaut False quand  application tourne en vrai, mais qui vaut True pour l'éditeur de code (VS Code) quand il inspecte code
+# En mettant les imports dans le bloc if TYPE_CHECKING :
+# l'éditeur de code lit l'import et peut faire l'auto-complétion intelligente.
 # Quand Uvicorn lance le serveur pour de vrai, Python ignore totalement ces imports (évitant ainsi le crash). SQLModel se débrouillera tout seul en lisant les noms des classes entre guillemets ("Game", "Throw").
 
 class Player(SQLModel, table=True):
@@ -29,11 +29,11 @@ class Player(SQLModel, table=True):
     age: Optional[int] = None
     #mdp hashé
     hashed_password: Optional[str]= Field(default=None)
-    creation_date: datetime = Field(default_factory=datetime.utcnow)#Date crée auto quand utilisateur est ajouté
+    creation_date: datetime = Field(default_factory=datetime.now(timezone.utc))#Date crée auto quand utilisateur est ajouté
     
     is_admin: bool = Field(default=False)
     
-    #le drapeau pour dire que c'est un invite
+    #le flag pour dire que c'est un invite
     is_guest: bool = Field(default=False)
     
     participations: List["GameParticipation"] = Relationship(back_populates="player")
@@ -82,6 +82,26 @@ class PlayerUpdate(SQLModel):
     name: Optional[str] = None
     age: Optional[int] =  Field(default=None, gt=0)
     
+    
+# Route pour voir ses invitations en attente (notification)
+class PendingInvitationRead(BaseModel):
+    game_id: int
+    game_mode: str
+    
+    host_username: str
+    host_name: str
+    
+    current_score: int
+    final_score: Optional[int] = None
+    position: Optional[int] = None
+    status: str
+    join_date: datetime
+    
+    # new infos
+    target_name: str
+    target_location: str
+
+
 #modele public(pour un classement par ex)
 class PlayerPublic(SQLModel):
     username: str
@@ -105,7 +125,7 @@ class PlayerStats(BaseModel):
     total_triple_20: int = 0      
     total_180s: int = 0
     total_100_plus: int = 0 # Nombre de fois où le joueur a fait 100 points ou plus en un tour (3 fléchettes)         
-    cursed_target: Optional[str] = None # La zone la moins visée 
+    cursed_target: Optional[str] = None # zone la moins visée (dans celles touchees au moins une fois)
     
     favorite_play_location: Optional[str] = None 
 
@@ -174,3 +194,13 @@ class ZoneStatsResponse(BaseModel):
     hit_distribution: List[HitData]
     
     
+    
+ #modèles pour le résumé des stats des amis (juste les parties jouees et les victoires pour graphique simple)
+class BasicStats(BaseModel):
+    total_games_played: int
+    total_wins: int
+
+class FriendStatSummary(BaseModel):
+    username: str
+    player_name: str
+    stats: BasicStats

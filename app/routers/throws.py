@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime, timezone
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, Security
 from fastapi.security.api_key import APIKeyHeader
@@ -14,12 +15,12 @@ from app.models.game_participation import GameParticipation, ValidationStatus
 from app.models.player import Player
 from app.models.target import Target
 
-from app.config import RASPBERRY_API_KEY # La clé secrète que le Raspberry Pi doit utiliser pour s'authentifier
+from app.config import RASPBERRY_API_KEY 
 from app.security.auth import get_current_user
 from app.utils.darts_logic import get_checkout_suggestion
 from app.utils.dartboard_math import get_score_and_multiplier
-from app.utils.led_controller import trigger_led_script # pour lancer les animations LED sur le Raspberry Pi après un bust ou une victoire
-from app.stream import stream_manager, broadcast_game_update # pour envoyer les notifications SSE aux téléphones après chaque lancer
+from app.utils.led_controller import trigger_led_script 
+from app.stream import stream_manager, broadcast_game_update 
 
 from app.security.raspberry_pi import verify_raspberry_pi # pour sécuriser l'endpoint de réception des lancers, accessible uniquement par le Raspberry Pi autorisé
 
@@ -66,7 +67,7 @@ async def process_throw_logic(
     if game.mode in ["501", "301"]:
         nouveau_score = participation.current_score - total_points_flechette
         
-        # Vérification du BUST
+        # Vérif du BUST
         if nouveau_score < 0 or nouveau_score == 1 or (nouveau_score == 0 and multiplicateur != 2):
             is_bust = True
             logger.warning(f" BUST ! {joueur_actuel}. Retour à {participation.current_score}.")
@@ -87,7 +88,7 @@ async def process_throw_logic(
             
             participation.current_score += points_du_tour #correction bug
             
-        # Vérification de la victoire (score doit être exactement à 0 avec un double)
+        # Vérif de la victoire (score doit être exactement à 0 avec un double)
         elif nouveau_score == 0 and multiplicateur == 2:
             is_victory = True
             logger.info(f" VICTOIRE ! {joueur_actuel} par un Double !")
@@ -99,7 +100,7 @@ async def process_throw_logic(
             game.status = GameStatus.finished
             game.end_date = datetime.now(timezone.utc)
             
-            # Classement automatique des perdants
+            # Classement auto des perdants
             autres = [p for p in game.participations if p.player_username != participation.player_username]
             autres.sort(key=lambda p: p.current_score)
             for i, perdant in enumerate(autres, start=2):
@@ -143,7 +144,7 @@ async def process_throw_logic(
             curr_idx = next(i for i, p in enumerate(participants_actifs) if p.player_username == joueur_actuel)
             next_idx = (curr_idx + 1) % len(participants_actifs)
             
-            if next_idx == 0: # On a fini un cycle complet
+            if next_idx == 0: # fini un cycle complet
                 if game.mode == "perso":
                     game.status = GameStatus.finished
                     game.end_date = datetime.now(timezone.utc)
@@ -168,7 +169,7 @@ async def process_throw_logic(
 
 
 
-from pydantic import BaseModel
+
 #crée un modèle spécifique pour ce que le Raspberry va envoyer
 class HardwareThrowPayload(BaseModel):
     target_id: str
@@ -210,7 +211,6 @@ async def register_throw(
     # calcul des points
     points, multiplicateur = get_score_and_multiplier(throw_in.x_position, throw_in.y_position, camera_id=throw_in.camera_id)
     
-    # On délègue toute l'intelligence au moteur central 
     return await process_throw_logic(#ajout de await pour attendre que le broadcast se termine avant de répondre au Pi (pour éviter les problèmes de concurrence sur la DB)
         session, game, joueur_actuel, tour_actuel, flechette_actuelle,
         points, multiplicateur, throw_in.x_position, throw_in.y_position, throw_in.camera_id
@@ -244,7 +244,7 @@ async def register_manual_throw(
     points = throw_in.points
     multiplicateur = throw_in.multiplier
 
-    # On délègue au moteur central (avec x et y à 0 pour indiquer que c'est manuel) !
+    # x et y à 0 pour indiquer que c'est manuel
     db_throw = await process_throw_logic(#pareil que pour le register_throw, on attend que le broadcast se termine avant de répondre au téléphone pour éviter les problèmes de concurrence sur la DB
         session, game, joueur_actuel, tour_actuel, flechette_actuelle,
         points, multiplicateur, 0.0, 0.0, None
@@ -321,7 +321,7 @@ async def undo_last_throw(
         for t in remaining_throws:
             if t.tour_number not in throws_by_turn:
                 throws_by_turn[t.tour_number] = []
-            throws_by_turn[t.tour_number].append(t) # VS Code reconnaîtra .append()
+            throws_by_turn[t.tour_number].append(t) 
             
         for tour in sorted(throws_by_turn.keys()):
             tour_throws = throws_by_turn[tour]
@@ -330,9 +330,9 @@ async def undo_last_throw(
             temp_score = current_score - tour_score
             
             last_t = tour_throws[-1]
-            # Vérification du BUST
+            # Vérif du BUST
             if temp_score < 0 or temp_score == 1 or (temp_score == 0 and last_t.multiplier != 2):
-                pass # BUST : on ne valide pas le score du tour
+                pass # BUST : valide pas le score du tour
             else:
                 current_score = temp_score # Valide
                 
