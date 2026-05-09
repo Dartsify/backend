@@ -10,7 +10,7 @@ class Target(SQLModel, table=True):
     id: str = Field(primary_key=True, min_length=6, max_length=6) #le QR code est la clé primaire, il doit faire exactement 6 caractères pour être valide
     name : str 
     location: str
-    creation_date: datetime = Field(default_factory=datetime.now(timezone.utc))
+    creation_date: datetime = Field(default_factory= lambda : datetime.now(timezone.utc))
     
     
     # Pour que SQLModel sache que plusieurs parties peuvent pointer sur la même cible :

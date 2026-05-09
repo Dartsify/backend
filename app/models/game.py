@@ -20,7 +20,7 @@ class Game(SQLModel, table=True):
     mode: str = Field(index=True) #mode obligatoire pour jouer 
     
     #quand lobby ouvert (automatique a la creation)
-    creation_date: datetime = Field(default_factory=datetime.now(timezone.utc)) 
+    creation_date: datetime = Field(default_factory= lambda : datetime.now(timezone.utc)) 
     
     #quand partie est lancee(/start)
     start_date: Optional[datetime] = None
@@ -39,7 +39,7 @@ class Game(SQLModel, table=True):
     current_dart_number: int = Field(default=1)
     
     #chrono d'inactivite
-    last_interaction: datetime = Field(default_factory=datetime.now(timezone.utc))
+    last_interaction: datetime = Field(default_factory= lambda : datetime.now(timezone.utc))
     
     # relation optionnelle pour SQLAlchemy / ORM
     target: Optional["Target"] = Relationship(back_populates="games")

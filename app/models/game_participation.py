@@ -26,7 +26,7 @@ class GameParticipation(SQLModel, table=True):
     #Par defaut quand on invite qqun, c'est en stand by mais l'hote de la partie sera mis en validated d'office
     status: ValidationStatus = Field(default=ValidationStatus.pending)
 
-    join_date: datetime = Field(default_factory=datetime.now(timezone.utc)) # L'heure exacte où il rejoint
+    join_date: datetime = Field(default_factory= lambda :datetime.now(timezone.utc)) # L'heure exacte où il rejoint
     
     # Relations ORM (qui permet de generer une jointure SQL tout seul en arriere plan, pas besoin de faire une requete supp)
     player: Optional["Player"] = Relationship(back_populates="participations")

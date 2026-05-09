@@ -64,7 +64,8 @@ def seed_test_data():
         # cibles
         cibles_test = [
             {"id": "000001", "name": "Cible Test 1", "location": "Bar Salle 1"},
-            {"id": "000002", "name": "Cible Test 2", "location": "Bar Salle 2"}
+            {"id": "000002", "name": "Cible Test 2", "location": "Bar Salle 2"},
+            {"id": "190256", "name": "Cible Dartsify", "location": "Faculté Polytechnique de Mons"}
         ]
 
         for cible_data in cibles_test:

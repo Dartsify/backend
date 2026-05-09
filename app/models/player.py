@@ -29,7 +29,7 @@ class Player(SQLModel, table=True):
     age: Optional[int] = None
     #mdp hashé
     hashed_password: Optional[str]= Field(default=None)
-    creation_date: datetime = Field(default_factory=datetime.now(timezone.utc))#Date crée auto quand utilisateur est ajouté
+    creation_date: datetime = Field(default_factory=lambda : datetime.now(timezone.utc))#Date crée auto quand utilisateur est ajouté
     
     is_admin: bool = Field(default=False)
     
@@ -161,7 +161,7 @@ class Friendship(SQLModel, table=True):
     
     status: FriendshipStatus = Field(default=FriendshipStatus.pending)
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     
 # Modèle pour l'affichage des demandes d'amis en attente

@@ -108,6 +108,239 @@ def create_new_game(
 
 
 
+#Route pour lister toutes les parties (historique de ses propres parties en tant que joueur)
+# et si admin il a les parties de tout le monde
+@router.get("/", response_model=List[GameListResponse])
+def get_all_games(
+    limit: int = 50,
+    offset: int = 0,
+    status: Optional[List[GameStatus]] = Query(None, description="Filtrer par statut (waiting, in_progress, finished)"),
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    # base de la requête selon le rôle (Admin ou Joueur)
+    if current_user.is_admin:
+        # L'admin a accès à TOUTES les parties
+        query = select(Game).order_by(Game.creation_date.desc())
+    else:
+        # Le joueur ne voit que SES parties 
+        query = (
+            select(Game)
+            .join(GameParticipation)
+            .where(GameParticipation.player_username == current_user.username)
+            .order_by(Game.creation_date.desc())
+        )
+    
+    if status:
+        # ".in_()" est la commande SQL pour dire "Si le statut du jeu FAIT PARTIE de la liste demandée"
+        query = query.where(Game.status.in_(status))
+        
+    query = query.offset(offset).limit(limit)
+    games = session.exec(query).all()
+    
+    enriched_games = []
+    
+    for game in games:
+        game_dict = game.model_dump()
+        
+        # ifos de la cible
+        target = session.get(Target, game.target_id)
+        if target:
+            game_dict["target_name"] = target.name
+            game_dict["target_location"] = target.location
+        else:
+            game_dict["target_name"] = "Cible inconnue"
+            game_dict["target_location"] = "Lieu inconnu"
+            
+        #nbr joueurs
+        game_dict["player_count"] = len(game.participations)
+        
+        # gagnant si partie finie
+        game_dict["winner_username"] = None  
+        game_dict["winner_name"] = None
+        
+        if game.status == GameStatus.finished:
+            # Cherche le joueur qui a la position "1"
+            winner = next((p for p in game.participations if p.position == 1), None)
+            if winner:
+                game_dict["winner_username"] = winner.player_username
+                # essaie de récupérer le vrai prénom, sinon met "Inconnu"
+                game_dict["winner_name"] = winner.player.name if winner.player else "Joueur inconnu"
+                
+        enriched_games.append(game_dict)
+        
+    return enriched_games
+        
+    
+    
+
+
+#route pour que le joueur voit ses historiques de parties jouees avec un ami ou a un endroit sur la base d'n filtre 
+@router.get("/my_history")
+def get_my_game_history(
+    location: str | None = None,
+    friends: List[str] | None = Query(default=None),
+    session: Session = Depends(get_session),
+    current_user: Player = Depends(get_current_user)):
+    
+    
+    # Base : cherche les participations de l'utilisateur actuel
+    # jointure pour récupérer les objets "Game" directement
+    query = (
+        select(Game)
+        .join(GameParticipation)
+        .where(GameParticipation.player_username == current_user.username)
+        .where(Game.status == GameStatus.finished) # passé
+    )
+
+    # filtre par lieu (recherche textuelle sur le nom ou la ville de la cible)
+    if location:
+        query = query.join(Target, Game.target_id == Target.id).where(
+            col(Target.location).ilike(f"%{location}%") | 
+            col(Target.name).ilike(f"%{location}%")
+        )
+
+    # Filtre par amis (Parties jouées avec X et Y)
+    if friends:
+        for friend_username in friends:
+            query = query.where(
+                col(Game.id).in_(
+                    select(GameParticipation.game_id)
+                    .where(GameParticipation.player_username == friend_username)
+                )
+            )
+
+    #tri par date
+    query = query.order_by(col(Game.end_date).desc())
+
+    results = session.exec(query).all()
+    
+    return results
+
+
+
+
+class ZoneStatBreakdown(BaseModel):
+    zone: str
+    total_hits: int
+    number: Dict[str, int] 
+    
+    
+#nouveau modele apres demande du front pour afficher les ppd et score max d'un tour
+class PlayerGamePerformance(BaseModel):
+    username: str
+    player_name: str
+    average_per_dart: float
+    max_turn_score: int
+
+class GameStatsResponse(BaseModel):
+    game_id: int
+    zone_stats: List[ZoneStatBreakdown]
+    player_performances: List[PlayerGamePerformance] # new
+    
+
+#recup les stats de la game qui vient d'etre terminee pour tous les joueurs
+@router.get("/{game_id}/stats", response_model=GameStatsResponse)
+def get_single_game_stats(
+    game_id: int,
+    session: Session = Depends(get_session)):
+        
+    game = session.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Partie introuvable.")
+
+    # calcul des stats de zones (Heatmap)
+    hits_query = session.exec(
+        select(Throw.calculated_score, Throw.multiplier, Throw.player_username, func.count(Throw.id).label("hits"))
+        .where(Throw.game_id == game_id)
+        .where(Throw.x_position != 0.0) # ignore les lancers manuels pour la précision
+        .group_by(Throw.calculated_score, Throw.multiplier, Throw.player_username)
+    ).all()
+
+    zones_dict = {}
+
+    for row in hits_query:
+        score = row[0]
+        mult = row[1]
+        username = row[2] 
+        hits = row[3]
+        
+        if score == 0:
+            label = "Miss"
+        elif score == 25:
+            label = "Double Bullseye" if mult == 2 else "Bullseye"
+        else:
+            if mult == 3: label = f"T{score}"
+            elif mult == 2: label = f"D{score}"
+            else: label = f"{score}"
+
+        if label not in zones_dict:
+            zones_dict[label] = {"zone": label, "total_hits": 0, "number": {}}
+        
+        zones_dict[label]["total_hits"] += hits
+        zones_dict[label]["number"][username] = hits
+
+    sorted_zones = sorted(list(zones_dict.values()), key=lambda x: x["total_hits"], reverse=True)
+
+    #calcul de moyenne et max pour un tour
+    # récup TOUS les lancers de la partie (y compris les lancers manuels ici car ca intervient dans les score moyens par ex)
+    all_throws = session.exec(
+        select(Throw).where(Throw.game_id == game_id)
+    ).all()
+
+    # Dict temporaire pour stocker les calculs
+    calc_dict = {}
+    
+    for p in game.participations:
+        calc_dict[p.player_username] = {
+            "player_name": p.player.name if p.player and p.player.name else p.player_username,
+            "total_score": 0,
+            "total_darts": 0,
+            "turns": {}
+        }
+
+    for t in all_throws:
+        user = t.player_username
+        if user not in calc_dict:
+            continue
+            
+        points = t.calculated_score * t.multiplier
+        tour = t.tour_number
+        
+        calc_dict[user]["total_score"] += points
+        calc_dict[user]["total_darts"] += 1
+        
+        # additionne les points de ce tour précis
+        if tour not in calc_dict[user]["turns"]:
+            calc_dict[user]["turns"][tour] = 0
+        calc_dict[user]["turns"][tour] += points
+
+    player_performances = []
+    for user, data in calc_dict.items():
+        # Moyenne
+        avg = round(data["total_score"] / data["total_darts"], 2) if data["total_darts"] > 0 else 0.0
+        
+        # Score max par tour
+        max_turn = max(data["turns"].values()) if data["turns"] else 0
+        
+        player_performances.append(
+            PlayerGamePerformance(
+                username=user,
+                player_name=data["player_name"],
+                average_per_dart=avg,
+                max_turn_score=max_turn
+            )
+        )
+
+    return GameStatsResponse(
+        game_id=game_id,
+        zone_stats=sorted_zones,
+        player_performances=player_performances
+    )
+    
+
+
+
 #modèle Pydantic juste pour recevoir les pseudo des ami à inviter
 class PlayerInvites(BaseModel):
     usernames: List[str]
@@ -280,71 +513,7 @@ def get_game_state(
 
 
 
-#Route pour lister toutes les parties (historique de ses propres parties en tant que joueur)
-# et si admin il a les parties de tout le monde
-@router.get("/", response_model=List[GameListResponse])
-def get_all_games(
-    limit: int = 50,
-    offset: int = 0,
-    status: Optional[List[GameStatus]] = Query(None, description="Filtrer par statut (waiting, in_progress, finished)"),
-    session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)):
-    
-    # base de la requête selon le rôle (Admin ou Joueur)
-    if current_user.is_admin:
-        # L'admin a accès à TOUTES les parties
-        query = select(Game).order_by(Game.creation_date.desc())
-    else:
-        # Le joueur ne voit que SES parties 
-        query = (
-            select(Game)
-            .join(GameParticipation)
-            .where(GameParticipation.player_username == current_user.username)
-            .order_by(Game.creation_date.desc())
-        )
-    
-    if status:
-        # ".in_()" est la commande SQL pour dire "Si le statut du jeu FAIT PARTIE de la liste demandée"
-        query = query.where(Game.status.in_(status))
-        
-    query = query.offset(offset).limit(limit)
-    games = session.exec(query).all()
-    
-    enriched_games = []
-    
-    for game in games:
-        game_dict = game.model_dump()
-        
-        # ifos de la cible
-        target = session.get(Target, game.target_id)
-        if target:
-            game_dict["target_name"] = target.name
-            game_dict["target_location"] = target.location
-        else:
-            game_dict["target_name"] = "Cible inconnue"
-            game_dict["target_location"] = "Lieu inconnu"
-            
-        #nbr joueurs
-        game_dict["player_count"] = len(game.participations)
-        
-        # gagnant si partie finie
-        game_dict["winner_username"] = None  
-        game_dict["winner_name"] = None
-        
-        if game.status == GameStatus.finished:
-            # Cherche le joueur qui a la position "1"
-            winner = next((p for p in game.participations if p.position == 1), None)
-            if winner:
-                game_dict["winner_username"] = winner.player_username
-                # essaie de récupérer le vrai prénom, sinon met "Inconnu"
-                game_dict["winner_name"] = winner.player.name if winner.player else "Joueur inconnu"
-                
-        enriched_games.append(game_dict)
-        
-    return enriched_games
-        
-    
-    
+
     
 #route pour lancer la partie qui a ete cree et qui est en mode waiting (l'hote clique sur "commencer la partie" quand tout le monde est la)
 @router.post("/{game_id}/start", response_model=GameRead)
@@ -797,123 +966,5 @@ async def add_guests_to_game(
         "starting_score": starting_score
     }
     
-    
-    
-    
-#route pour que le joueur voit ses historiques de parties jouees avec un ami ou a un endroit sur la base d'n filtre 
-@router.get("/my_history")
-def get_my_game_history(
-    location: str | None = None,
-    friends: List[str] | None = Query(default=None),
-    session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)):
-    
-    
-    # Base : cherche les participations de l'utilisateur actuel
-    # jointure pour récupérer les objets "Game" directement
-    query = (
-        select(Game)
-        .join(GameParticipation)
-        .where(GameParticipation.player_username == current_user.username)
-        .where(Game.status == GameStatus.finished) # passé
-    )
-
-    # filtre par lieu (recherche textuelle sur le nom ou la ville de la cible)
-    if location:
-        query = query.join(Target, Game.target_id == Target.id).where(
-            col(Target.location).ilike(f"%{location}%") | 
-            col(Target.name).ilike(f"%{location}%")
-        )
-
-    # Filtre par amis (Parties jouées avec X et Y)
-    if friends:
-        for friend_username in friends:
-            query = query.where(
-                col(Game.id).in_(
-                    select(GameParticipation.game_id)
-                    .where(GameParticipation.player_username == friend_username)
-                )
-            )
-
-    #tri par date
-    query = query.order_by(col(Game.end_date).desc())
-
-    results = session.exec(query).all()
-    
-    return results
 
 
-
-
-
-
-class ZoneStatBreakdown(BaseModel):
-    zone: str
-    total_hits: int
-    number: Dict[str, int] 
-
-class GameStatsResponse(BaseModel):
-    game_id: int
-    zone_stats: List[ZoneStatBreakdown]
-    
-
-#recup les stats de la game qui vient d'etre terminee pour tous les joueurs
-@router.get("/{game_id}/stats", response_model=GameStatsResponse)
-def get_single_game_stats(
-    game_id: int,
-    session: Session = Depends(get_session),
-    current_user: Player = Depends(get_current_user)):
-    
-    game = session.get(Game, game_id)
-    if not game:
-        raise HTTPException(status_code=404, detail="Partie introuvable.")
-
-    player_mapping = {}
-    for p in game.participations:
-        player_mapping[p.player_username] = p.player.name if p.player and p.player.name else p.player_username
-
-    # Requête SQL pour grouper les lancers par Score, Multiplicateur ET Joueur
-    hits_query = session.exec(
-        select(Throw.calculated_score, Throw.multiplier, Throw.player_username, func.count(Throw.id).label("hits"))
-        .where(Throw.game_id == game_id)
-        .where(Throw.x_position != 0.0) # ignore les lancers manuels pour ces stats de précision
-        .group_by(Throw.calculated_score, Throw.multiplier, Throw.player_username)
-    ).all()
-
-    zones_dict = {}
-
-    for row in hits_query:
-        score = row[0]
-        mult = row[1]
-        username = row[2]
-        hits = row[3]
-        
-        if score == 0:
-            label = "Miss"
-        elif score == 25:
-            label = "Double Bullseye" if mult == 2 else "Bullseye"
-        else:
-            if mult == 3: label = f"T{score}"
-            elif mult == 2: label = f"D{score}"
-            else: label = f"{score}"
-            
-        display_name = player_mapping.get(username, username)
-
-        # Si c'est première fois qu'on croise cette zone -> initialise
-        if label not in zones_dict:
-            zones_dict[label] = {
-                "zone": label, 
-                "total_hits": 0, 
-                "number": {}
-            }
-        
-        # On ajoute les stats
-        zones_dict[label]["total_hits"] += hits
-        zones_dict[label]["number"][display_name] = hits
-
-    sorted_zones = sorted(list(zones_dict.values()), key=lambda x: x["total_hits"], reverse=True)
-
-    return GameStatsResponse(
-        game_id=game_id,
-        zone_stats=sorted_zones
-    )

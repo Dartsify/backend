@@ -13,7 +13,7 @@ class Throw(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True) 
     tour_number: int  # numéro du tour
     dart_number: int  # 1, 2 ou 3 (flechette du tour)
-    time_throw: datetime = Field(default_factory=datetime.now(timezone.utc))
+    time_throw: datetime = Field(default_factory= lambda : datetime.now(timezone.utc))
     
     x_position: float #position pour retrouver score avec algo de reconnaissance
     y_position: float
