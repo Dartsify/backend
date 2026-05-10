@@ -54,7 +54,7 @@ def login(response: Response,
         httponly=True,  # Protège contre les failles XSS (JavaScript ne peut pas le voler)
         samesite="lax", # Autorise l'envoi du cookie pour les requêtes sur le même réseau
         secure=False,   # IMPORTANT : Reste sur False tant que en HTTP (sans SSL/HTTPS) -> a changer a l'avenir en true pour prod
-        max_age=86400   # Le cookie expirera dans 24h (86400 secondes)
+        max_age=3600   # Le cookie expirera dans 1h (3600 secondes)
     )
 
     return {
