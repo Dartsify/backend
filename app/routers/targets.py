@@ -93,8 +93,12 @@ def get_target_status(target_id: str, session: Session = Depends(get_session)):
 
     #controle d'inactivite 
     if active_game:
+        last_interaction = active_game.last_interaction
+        if last_interaction.tzinfo is None:
+            last_interaction = last_interaction.replace(tzinfo=timezone.utc)
+            
         # calcul temps écoulé depuis dernière interaction
-        time_elapsed = datetime.now(timezone.utc) - active_game.last_interaction
+        time_elapsed = datetime.now(timezone.utc) - last_interaction
         
         # Si ça fait plus de 20 minutes (1200 secondes)
         if time_elapsed > timedelta(minutes=20):
