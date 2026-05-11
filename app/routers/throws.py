@@ -78,7 +78,8 @@ async def process_throw_logic(
                 select(Throw).where(
                     Throw.game_id == game.id, 
                     Throw.player_username == joueur_actuel, 
-                    Throw.tour_number == tour_actuel
+                    Throw.tour_number == tour_actuel,
+                    Throw.dart_number < flechette_actuelle # que les lancers précédents de ce tour
                 )
             ).all()
             
