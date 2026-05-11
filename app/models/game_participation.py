@@ -3,7 +3,7 @@ from typing import Optional, List, TYPE_CHECKING, Dict
 from enum import Enum
 from datetime import datetime, timezone
 
-if TYPE_CHECKING:
+if TYPE_CHECKING: #pour eviter imports circulaires et pour que VScode comprenne que les classes existent
     from app.models.game import Game
     from app.models.player import Player
     from app.models.throw import Throw
@@ -31,6 +31,7 @@ class GameParticipation(SQLModel, table=True):
     # Relations ORM (qui permet de generer une jointure SQL tout seul en arriere plan, pas besoin de faire une requete supp)
     player: Optional["Player"] = Relationship(back_populates="participations")
     game: Optional["Game"] = Relationship(back_populates="participations") #grace au back_pop, ca va dans les 2 sens et pas besoin de requete sql trop complexe
+    # indication de type pour le futur, ne pas chercher a effectuer ce mot tout de suite (avec le probleme d'imports circulaires)
     
     
 #Renvoyer pour chaque joueur de la partie
