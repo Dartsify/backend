@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Chemin absolu vers le dossier où se trouve le fichier de script sur le Raspberry Pi (a veriffffff)
-SCRIPTS_PATH = "/home/pi/dartsify/leds/main.py"
+SCRIPTS_PATH = "/home/raspberry/DARTSIFY/animations-des-leds/leds/main.py"
 
 
 
@@ -16,7 +16,7 @@ def trigger_led_script(action: str):
         subprocess.run(["sudo", "pkill", "-f", SCRIPTS_PATH]) 
         
         # lance la nouvelle animation
-        # Ligne de commande générée : python3 /home/pi/dartsify/main.py , win, ....
+        # Ligne de commande générée : python3 /home/pi/DARTSIFY/main.py , win, ....
         subprocess.Popen(["sudo", "python3", SCRIPTS_PATH, action])
         
         logger.info(f"Signal LED envoyé : {action}")
