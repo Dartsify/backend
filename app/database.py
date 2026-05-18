@@ -65,7 +65,15 @@ def seed_test_data():
         cibles_test = [
             {"id": "000001", "name": "Cible Test 1", "location": "Bar Salle 1"},
             {"id": "000002", "name": "Cible Test 2", "location": "Bar Salle 2"},
-            {"id": "190256", "name": "Cible Dartsify", "location": "Faculté Polytechnique de Mons"}
+            {"id": "190256", "name": "Cible Dartsify", "location": "Faculté Polytechnique de Mons"},
+            {"id": "000003", "name": "Cible Test 3", "location": "Bar Salle 3"},
+            {"id": "000004", "name": "Cible Test 4", "location": "Bar Salle 4"},
+            {"id": "000005", "name": "Cible Test 5", "location": "Bar Salle 5"},
+            {"id": "000006", "name": "Cible Test 6", "location": "Bar Salle 6"},
+            {"id": "000007", "name": "Cible Test 7", "location": "Bar Salle 7"},
+            {"id": "000008", "name": "Cible Test 8", "location": "Bar Salle 8"},
+            {"id": "000009", "name": "Cible Test 9", "location": "Bar Salle 9"},
+            {"id": "000010", "name": "Cible Test 10", "location": "Bar Salle 10"},            
         ]
 
         for cible_data in cibles_test:

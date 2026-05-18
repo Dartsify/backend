@@ -95,10 +95,19 @@ def create_new_game(
         starting_score = 501
     elif game_in.mode == "301" :
         starting_score = 301
-    elif game_in.mode == "Perso":
+    elif game_in.mode == "perso":
         starting_score = 0 #mode pour jury , demarre a 0 et essai d'etre le plus eleve
     else :
-        starting_score = 0   
+        raise HTTPException(
+            status_code=400, 
+            detail=[
+                {
+                    "field": "game_mode", 
+                    "value": game_in.mode, 
+                    "message": "Ce mode n'existe pas. Choisissez parmi : 501, 301 ou perso."
+                }
+            ]
+        )  
     
     participation = GameParticipation(
         game_id=new_game.id,
