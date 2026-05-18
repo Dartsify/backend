@@ -29,7 +29,7 @@ def get_score_and_multiplier(x: float, y: float, camera_id: int) -> tuple[int, i
 
     # Vérification du centre et sortie de cible avant de calculer l'angle
     if distance <= R_BULL_INNER :
-        return 50, 2  # Double Bull (multiplicateur = 2)
+        return 25, 2  # Double Bull (multiplicateur = 2)
     if distance <= R_BULL_OUTER:
         return 25, 1  # Simple Bull 
     if distance > R_DOUBLE_OUTER:
