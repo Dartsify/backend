@@ -170,6 +170,9 @@ async def process_throw_logic(
             if game.status != GameStatus.finished:
                 game.current_player_username = participants_actifs[next_idx].player_username
                 game.current_dart_number = 1
+            
+        else : # même joueur, lance la fléchette suivante
+            game.current_dart_number += 1
 
     game.last_interaction = datetime.now(timezone.utc)
     
