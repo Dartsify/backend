@@ -355,6 +355,16 @@ async def undo_last_throw(
 
     elif game.mode == "perso":
         participation.current_score = sum(t.calculated_score * t.multiplier for t in remaining_throws)
+        
+        participants_actifs = sorted(
+            [p for p in game.participations if p.status != ValidationStatus.rejected],
+            key=lambda p: p.current_score,
+            reverse=True
+        )
+        for rank, p in enumerate(participants_actifs, start=1):
+            p.position = rank
+            session.add(p)
+            
     session.add(participation)
     session.add(game)
     session.commit()
