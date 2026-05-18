@@ -17,7 +17,11 @@ from pydantic import BaseModel
 from sqlmodel import Session, select, func, col 
 from app.database import get_session
 
-from algoIA.main import main as algo_ia_main
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[3]))
+import threading
+from algoIA.main_DEBUG import main as algo_ia_main
 
 from app.models.game import Game, GameCreate, GameRead, GameStatus, GameListResponse
 from app.models.game_participation import GameParticipation, ValidationStatus, GameReadWithParticipants
