@@ -48,10 +48,11 @@ parser = argparse.ArgumentParser(description="Simuler un tir de fléchette")
 parser.add_argument("--x", type=float, default=624.0, help="Position X du tir")
 parser.add_argument("--y", type=float, default=468.0, help="Position Y du tir")
 parser.add_argument("--camera", type=int, default=1, help="ID de la caméra")
+parser.add_argument("--target", type=str, default="000002", help="ID de la cible")
 args = parser.parse_args()
 
 payload = {
-    "target_id": "000002",
+    "target_id": args.target,
     "x_position": args.x,
     "y_position": args.y,
     "camera_id": args.camera
