@@ -1,7 +1,8 @@
 # Environnement et Sécurité
 .env
 *.pem
-
+*.onnx.*
+*.onnx
 # Bases de données & Logs
 *.db
 *.sqlite

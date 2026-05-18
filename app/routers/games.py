@@ -3,6 +3,7 @@ import json
 import random
 import logging
 import asyncio
+import threading
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
@@ -15,6 +16,8 @@ from pydantic import BaseModel
 
 from sqlmodel import Session, select, func, col 
 from app.database import get_session
+
+from algoIA.main import main as algo_ia_main
 
 from app.models.game import Game, GameCreate, GameRead, GameStatus, GameListResponse
 from app.models.game_participation import GameParticipation, ValidationStatus, GameReadWithParticipants
@@ -33,6 +36,9 @@ from app.stream import broadcast_game_update
 #config du router et du logger
 router = APIRouter(prefix="/games", tags=["games"])
 logger = logging.getLogger(__name__)
+
+# Variable globale pour l'IA
+_ia_thread = None
 
 
 #creer une partie
@@ -542,6 +548,13 @@ async def launch_game(
             status_code=400, 
             detail="Cette partie a déjà commencé ou est déjà terminée."
         )
+
+    # Démarrer l'algorithme IA s'il ne tourne pas déjà
+    global _ia_thread
+    if _ia_thread is None or not _ia_thread.is_alive():
+        logger.info("Démarrage de l'algorithme IA pour la partie...")
+        _ia_thread = threading.Thread(target=algo_ia_main, daemon=True)
+        _ia_thread.start()
 
     #Go
     game.status = GameStatus.in_progress
