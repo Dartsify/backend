@@ -114,6 +114,17 @@ async def process_throw_logic(
     elif game.mode == "perso":
         participation.current_score += total_points_flechette
 
+    #Recalcul du classement en temps réel 
+        # Le plus gros score obtient la position 1 (reverse=True)
+        participants_actifs = sorted(
+            [p for p in game.participations if p.status != ValidationStatus.rejected],
+            key=lambda p: p.current_score,
+            reverse=True
+        )
+        for rank, p in enumerate(participants_actifs, start=1):
+            p.position = rank
+            session.add(p)
+    
     # Gestion des animations LED 
     if not is_victory and not is_bust and flechette_actuelle == 3:
         # On récupère le score total du tour
@@ -145,17 +156,20 @@ async def process_throw_logic(
             curr_idx = next(i for i, p in enumerate(participants_actifs) if p.player_username == joueur_actuel)
             next_idx = (curr_idx + 1) % len(participants_actifs)
             
-            if next_idx == 0: # fini un cycle complet
+            if next_idx == 0: # fini un cycle complet (Tous les joueurs ont joué 1 tour)
                 if game.mode == "perso":
                     game.status = GameStatus.finished
                     game.end_date = datetime.now(timezone.utc)
+                    for p in game.participations:
+                        p.final_score = p.current_score
+                        session.add(p)
                 else:
                     game.current_turn_number += 1
             
-            game.current_player_username = participants_actifs[next_idx].player_username
-            game.current_dart_number = 1
-        else:
-            game.current_dart_number += 1
+            # passe au joueur suivant si la partie n'est pas finie
+            if game.status != GameStatus.finished:
+                game.current_player_username = participants_actifs[next_idx].player_username
+                game.current_dart_number = 1
 
     game.last_interaction = datetime.now(timezone.utc)
     
