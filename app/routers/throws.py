@@ -219,6 +219,11 @@ async def register_throw(
     if not game:
         logger.warning(f"Une fléchette a touché la cible {throw_in.target_id}, mais aucune partie n'est en cours !")
         raise HTTPException(status_code=400, detail="Aucune partie en cours sur cette cible.")
+    
+    temps_ecoule = (datetime.now(timezone.utc) - game.last_interaction).total_seconds()
+    if temps_ecoule < 1.5:
+        logger.warning(f"Fléchette reçue trop rapidement après la précédente ({temps_ecoule:.2f}s). Ignorée pour éviter les doublons.")
+        raise HTTPException(status_code=429, detail="Lancer reçu trop rapidement. Veuillez patienter un instant.")
 
     # deduction de qui doit jouer
     joueur_actuel = game.current_player_username
