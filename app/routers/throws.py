@@ -222,7 +222,8 @@ async def register_throw(
     
     last_interaction = game.last_interaction.replace(tzinfo=timezone.utc) if game.last_interaction.tzinfo is None else game.last_interaction
     temps_ecoule = (datetime.now(timezone.utc) - last_interaction).total_seconds()
-    if temps_ecoule < 1.5:
+    if temps_ecoule < 1.5: #SECU pour éviter les doublons de lancers (le Pi peut envoyer plusieurs messages pour un même lancer, on ignore les suivants pendant 1.5s)
+        # A CHANGER !!!!!!!!!!!!!!!!!!
         logger.warning(f"Fléchette reçue trop rapidement après la précédente ({temps_ecoule:.2f}s). Ignorée pour éviter les doublons.")
         raise HTTPException(status_code=429, detail="Lancer reçu trop rapidement. Veuillez patienter un instant.")
 
